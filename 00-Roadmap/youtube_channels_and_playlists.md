@@ -28,7 +28,7 @@
 - AI agent development, practical tutorials
 
 ### 6. Matt Williams (Ollama)
-- **Channel:** https://www.youtube.com/@techaboron
+- **Channel:** https://www.youtube.com/@technovangelist
 - Local LLM setups, Ollama tutorials
 
 ### 7. Sam Witteveen

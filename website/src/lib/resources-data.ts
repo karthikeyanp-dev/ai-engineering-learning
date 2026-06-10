@@ -84,8 +84,8 @@ export const youtubeChannels: YoutubeChannel[] = [
   { name: 'StatQuest', focus: 'Statistics & ML fundamentals', category: 'Foundational', keyContent: ['Statistics fundamentals', 'ML algorithms explained', 'Clear visual teaching'], url: 'https://www.youtube.com/@statquest' },
   { name: 'AI Jason', focus: 'Practical AI agent tutorials', category: 'AI Engineering', keyContent: ['AI agent builds', 'Tool integration', 'Practical walkthroughs'], url: 'https://www.youtube.com/@AIJasonZ' },
   { name: 'Cole Medin', focus: 'AI agent development', category: 'AI Engineering', keyContent: ['Agent development', 'LangChain tutorials', 'Production patterns'], url: 'https://www.youtube.com/@ColeMedin' },
-  { name: 'Matt Williams', focus: 'Local LLM setups, Ollama', category: 'AI Engineering', keyContent: ['Ollama guides', 'Local LLM setup', 'Self-hosted AI'], url: 'https://www.youtube.com/@techaboretum' },
-  { name: 'Sam Witteveen', focus: 'LangChain, RAG, agents', category: 'AI Engineering', keyContent: ['LangChain tutorials', 'RAG implementations', 'Agent patterns'], url: 'https://www.youtube.com/@samwitteveen' },
+  { name: 'Matt Williams', focus: 'Local LLM setups, Ollama', category: 'AI Engineering', keyContent: ['Ollama guides', 'Local LLM setup', 'Self-hosted AI'], url: 'https://www.youtube.com/@technovangelist' },
+  { name: 'Sam Witteveen', focus: 'LangChain, RAG, agents', category: 'AI Engineering', keyContent: ['LangChain tutorials', 'RAG implementations', 'Agent patterns'], url: 'https://www.youtube.com/@samwitteveenai' },
   { name: 'James Briggs', focus: 'Vector databases, RAG', category: 'AI Engineering', keyContent: ['Vector DB comparisons', 'RAG tutorials', 'Pinecone deep dives'], url: 'https://www.youtube.com/@jamesbriggs' },
   { name: 'Yannic Kilcher', focus: 'Paper explanations', category: 'General AI/ML', keyContent: ['Paper walkthroughs', 'Research analysis', 'Architecture breakdowns'], url: 'https://www.youtube.com/@YannicKilcher' },
   { name: 'Two Minute Papers', focus: 'Quick research updates', category: 'General AI/ML', keyContent: ['Research summaries', 'New paper highlights', 'Visual demos'], url: 'https://www.youtube.com/@TwoMinutePapers' },
@@ -95,7 +95,7 @@ export const youtubeChannels: YoutubeChannel[] = [
 export const keyPlaylists = [
   { title: 'Neural Networks: Zero to Hero', channel: 'Andrej Karpathy', url: 'https://www.youtube.com/playlist?list=PLAqhIrjkxbuWI23v9cThsA9GvCAUhRvKZ' },
   { title: 'Essence of Linear Algebra', channel: '3Blue1Brown', url: 'https://www.youtube.com/playlist?list=PLZHQObOWTQDPD3MizzM2xVFitgF8hE_ab' },
-  { title: 'LangChain Tutorials', channel: 'Sam Witteveen', url: 'https://www.youtube.com/playlist?list=PL8motc6AQftk1Bs42EW45kvgByFSGRBnX' },
+  { title: 'LangChain Tutorials', channel: 'Sam Witteveen', url: 'https://www.youtube.com/playlist?list=PL8motc6AQftk1Bs42EW45kwYbyJ4jOdiZ' },
   { title: 'RAG From Scratch', channel: 'LangChain', url: 'https://www.youtube.com/playlist?list=PLfaIDFEXuae2LXbO1_PKyVJiQ23ZztA0x' },
 ];
 
