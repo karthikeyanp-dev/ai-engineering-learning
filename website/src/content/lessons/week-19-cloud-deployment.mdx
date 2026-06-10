@@ -1,0 +1,289 @@
+---
+title: "Cloud Deployment & CI/CD"
+description: "Deploy AI applications to the cloud with GitHub Actions CI/CD, understand serverless vs always-on tradeoffs"
+phase: 6
+week: 19
+objectives:
+  - "Deploy AI applications to cloud platforms (AWS/GCP/Azure)"
+  - "Build CI/CD pipelines with GitHub Actions"
+  - "Understand serverless vs always-on deployment tradeoffs"
+  - "Configure auto-scaling and environment management"
+estimatedTime: "10-12 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=eMnQt2EPs_8"
+order: 19
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Your Dockerized AI application is ready for the world. But deploying to the cloud involves critical decisions: which platform, serverless vs. containers, auto-scaling configuration, and how to manage secrets and environments. Getting these right means the difference between a demo and a production system.
+
+This week, you'll set up a complete **CI/CD pipeline** with GitHub Actions that automatically tests, builds, and deploys your application. You'll understand the tradeoffs between deployment options and make informed decisions based on your specific requirements for latency, cost, and scale.
+
+<Callout type="tip" title="Start Simple" client:load>
+  Don't over-engineer your first deployment. Start with a single container on a managed service (Railway, Fly.io, or Cloud Run). Add complexity (Kubernetes, multi-region) only when your traffic justifies it. Premature scaling optimization is the root of many DevOps nightmares.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=eMnQt2EPs_8" title="Deploy ML Models to Production - Complete Guide" client:load />
+
+## Deployment Options Compared
+
+| Option | Cold Start | Cost Model | Scaling | Best For |
+|--------|-----------|------------|---------|----------|
+| **AWS Lambda / Cloud Functions** | 1-10s | Per-request | Automatic | Light workloads, event-driven |
+| **Cloud Run / App Runner** | 0-5s | Per-request + min instances | Auto | Container-based APIs |
+| **ECS / Cloud Run (always-on)** | None | Per-hour | Auto/manual | Consistent traffic |
+| **EC2 / GCE** | None | Per-hour | Manual/ASG | GPU workloads, full control |
+| **Railway / Fly.io** | 0-3s | Per-usage | Auto | Small-medium projects |
+| **Kubernetes (EKS/GKE)** | None | Per-node | HPA/VPA | Large-scale, multi-service |
+
+## Serverless vs Always-On Decision
+
+| Factor | Serverless | Always-On |
+|--------|-----------|-----------|
+| **Traffic Pattern** | Bursty/unpredictable | Consistent |
+| **Cold Start Tolerance** | Acceptable (> 1s) | Not acceptable |
+| **Cost at Low Traffic** | Very Low | Higher (fixed) |
+| **Cost at High Traffic** | Can be expensive | More predictable |
+| **GPU Access** | Limited/None | Full |
+| **Model Loading** | Problematic (large models) | Load once |
+| **Max Request Duration** | 5-15 min limit | Unlimited |
+
+<Callout type="important" title="AI-Specific Consideration" client:load>
+  LLM inference typically requires models loaded in memory (2-16GB+). Serverless functions with cold starts must reload models on each invocation — this makes serverless impractical for self-hosted models. Use serverless only for API-based AI (calling OpenAI/Anthropic) or very lightweight models.
+</Callout>
+
+## GitHub Actions CI/CD Pipeline
+
+<CodeBlock language="python" title=".github/workflows/deploy.yml" client:load>
+{`name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: \${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
+      
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+        env:
+          OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
+      
+      - name: Run linting
+        run: |
+          pip install ruff
+          ruff check src/
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: \${{ env.REGISTRY }}
+          username: \${{ github.actor }}
+          password: \${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:latest
+            \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ai-api
+          region: us-central1
+          image: \${{ env.REGISTRY }}/\${{ env.IMAGE_NAME }}:\${{ github.sha }}
+          env_vars: |
+            LOG_LEVEL=info
+            ENVIRONMENT=production
+          secrets: |
+            OPENAI_API_KEY=openai-key:latest
+          flags: >-
+            --min-instances=1
+            --max-instances=10
+            --memory=2Gi
+            --cpu=2
+            --timeout=300
+            --concurrency=80
+`}
+</CodeBlock>
+
+## Cloud Deployment Configuration
+
+<CodeBlock language="python" title="cloud_run_config.py" client:load>
+{`# Infrastructure as Code with Pulumi (Python)
+import pulumi
+import pulumi_gcp as gcp
+
+# Cloud Run service
+service = gcp.cloudrun.Service("ai-api",
+    location="us-central1",
+    template=gcp.cloudrun.ServiceTemplateArgs(
+        metadata=gcp.cloudrun.ServiceTemplateMetadataArgs(
+            annotations={
+                "autoscaling.knative.dev/minScale": "1",
+                "autoscaling.knative.dev/maxScale": "10",
+                "run.googleapis.com/cpu-throttling": "false",
+            },
+        ),
+        spec=gcp.cloudrun.ServiceTemplateSpecArgs(
+            containers=[gcp.cloudrun.ServiceTemplateSpecContainerArgs(
+                image="gcr.io/my-project/ai-api:latest",
+                resources=gcp.cloudrun.ServiceTemplateSpecContainerResourcesArgs(
+                    limits={"memory": "2Gi", "cpu": "2000m"},
+                ),
+                envs=[
+                    gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                        name="ENVIRONMENT", value="production"
+                    ),
+                ],
+                ports=[gcp.cloudrun.ServiceTemplateSpecContainerPortArgs(
+                    container_port=8000,
+                )],
+            )],
+            container_concurrency=80,
+            timeout_seconds=300,
+        ),
+    ),
+    traffics=[gcp.cloudrun.ServiceTrafficArgs(
+        percent=100,
+        latest_revision=True,
+    )],
+)
+
+# Make publicly accessible
+iam = gcp.cloudrun.IamMember("public-access",
+    service=service.name,
+    location="us-central1",
+    role="roles/run.invoker",
+    member="allUsers",
+)
+
+pulumi.export("url", service.statuses[0].url)
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Secrets Management" client:load>
+  NEVER commit API keys or secrets to git. Use GitHub Secrets for CI/CD, cloud secret managers (GCP Secret Manager, AWS Secrets Manager) for runtime, and `.env` files (gitignored) for local development. Rotate keys regularly and use least-privilege access.
+</Callout>
+
+## Environment Management
+
+<CodeBlock language="python" title="config.py" client:load>
+{`from pydantic_settings import BaseSettings
+from functools import lru_cache
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+    
+    # API Configuration
+    environment: str = "development"
+    log_level: str = "info"
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    
+    # AI/ML
+    openai_api_key: str
+    model_name: str = "gpt-4o-mini"
+    max_tokens: int = 2048
+    
+    # Database
+    database_url: str = "postgresql://localhost/ai_app"
+    redis_url: str = "redis://localhost:6379"
+    
+    # Rate Limiting
+    rate_limit_per_minute: int = 30
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()
+`}
+</CodeBlock>
+
+## Hands-on Project: End-to-End Deployment
+
+Deploy your AI API from last week to the cloud:
+1. Set up a GitHub Actions workflow with test → build → deploy stages
+2. Configure secrets in GitHub (API keys, registry credentials)
+3. Deploy to Google Cloud Run (or Railway/Fly.io for simpler setup)
+4. Configure a custom domain with HTTPS
+5. Set up auto-scaling (min 1, max 10 instances)
+6. Verify the deployment handles 50 concurrent requests
+7. Add a staging environment with promotion to production
+
+## Key Resources
+
+- [GitHub Actions Documentation](https://docs.github.com/en/actions) — CI/CD platform
+- [Google Cloud Run](https://cloud.google.com/run/docs) — Serverless containers
+- [Railway](https://railway.app/) — Simple deployment platform
+- [Fly.io](https://fly.io/docs/) — Edge deployment
+- [Docker Build Cache](https://docs.docker.com/build/cache/) — Speed up builds
+
+## Summary
+
+1. Choose deployment platform based on traffic patterns, latency needs, and GPU requirements
+2. Serverless is cost-effective for bursty traffic but problematic for large model inference
+3. GitHub Actions provides free CI/CD for building, testing, and deploying containers
+4. Always separate configuration from code using environment variables and secret managers
+5. Start simple (single container) and add complexity only when traffic demands it
+
+---
+
+## Next Steps
+
+Next week, you'll add **monitoring, observability, and safety** — ensuring your deployed application is reliable, performant, and safe in production.

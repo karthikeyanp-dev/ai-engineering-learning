@@ -1,0 +1,327 @@
+---
+title: "AI System Design: Patterns & Architecture"
+description: "Learn to design scalable AI systems — from RAG at scale to multi-agent orchestration and model serving patterns"
+phase: 8
+week: 23
+objectives:
+  - "Master AI system design patterns for production applications"
+  - "Design reference architectures for common AI use cases"
+  - "Navigate production trade-offs: scalability, cost, latency, privacy"
+  - "Practice system design interview problems with structured frameworks"
+estimatedTime: "10-12 hours"
+difficulty: "advanced"
+videoUrl: "https://www.youtube.com/watch?v=iyJF2KjFOkQ"
+order: 23
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+System design is where AI engineering meets software engineering at scale. You know how to build a RAG pipeline or an agent — but can you design one that handles 10,000 concurrent users, costs less than $0.02 per query, responds in under 2 seconds, and gracefully degrades when upstream APIs fail?
+
+This lesson covers the architectural patterns, trade-offs, and frameworks used by teams at companies like Perplexity, Notion, and Cursor to build AI products at scale. Whether you're preparing for system design interviews or architecting real systems, these patterns are essential.
+
+The shift from "it works on my laptop" to "it works for 1 million users" requires thinking about caching, async processing, cost optimization, multi-tenancy, and failure modes — all while maintaining the quality you measured in the evaluation lesson.
+
+<Callout type="info" title="System Design = Trade-offs" client:load>
+  There's no perfect architecture. Every design decision is a trade-off between latency, cost, accuracy, complexity, and reliability. The best engineers can articulate these trade-offs clearly and make informed decisions for their specific context.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=iyJF2KjFOkQ" title="AI System Design - Emerging Architectures for LLM Applications" client:load />
+
+## Core AI System Design Patterns
+
+### Pattern 1: RAG at Scale
+
+```
+User Query → Query Router → [Cache Check]
+                ↓ (miss)
+        Query Understanding
+        (rewrite, expand, classify)
+                ↓
+        Hybrid Retrieval
+        (semantic + keyword + metadata filters)
+                ↓
+        Re-ranking (cross-encoder)
+                ↓
+        Context Assembly & Compression
+                ↓
+        LLM Generation (with streaming)
+                ↓
+        Response + Citations → [Cache Store]
+```
+
+**Key scaling decisions:**
+- **Embedding pre-computation** — batch process documents offline
+- **Vector DB sharding** — partition by tenant, topic, or time
+- **Semantic caching** — cache similar queries (not just exact matches)
+- **Tiered retrieval** — fast approximate search → precise re-ranking
+
+### Pattern 2: Agent Orchestration
+
+```
+User Request → Intent Router
+                ↓
+        Planner Agent (decompose into subtasks)
+                ↓
+        [Task Queue] → Worker Agents (parallel)
+        ├── Research Agent (web search, RAG)
+        ├── Code Agent (write, test, iterate)
+        ├── Data Agent (SQL, APIs, transforms)
+        └── Review Agent (validate outputs)
+                ↓
+        Synthesizer Agent (combine results)
+                ↓
+        Human-in-the-loop (if confidence < threshold)
+                ↓
+        Final Response
+```
+
+### Pattern 3: Model Serving & Gateway
+
+```
+Client → API Gateway (rate limit, auth)
+              ↓
+        Model Router (cost/quality/latency rules)
+        ├── GPT-4o (complex reasoning) — $$$
+        ├── Claude Sonnet (long context) — $$
+        ├── GPT-4o-mini (simple tasks) — $
+        └── Local model (privacy-sensitive) — Free
+              ↓
+        Response Processing
+        (guardrails, PII filtering, formatting)
+              ↓
+        Client
+```
+
+<Callout type="tip" title="The Model Router Pattern" client:load>
+  Don't use GPT-4o for everything. Route queries by complexity: use a cheap classifier to determine if a query needs a frontier model or if a smaller model suffices. This can cut costs by 60-80% with minimal quality loss.
+</Callout>
+
+## Reference Architectures
+
+### 1. Enterprise Chatbot with RAG
+
+<CodeBlock language="python" title="architecture_chatbot_rag.py" client:load>
+{`"""
+Enterprise RAG Chatbot — Architecture Overview
+
+Components:
+- Document Ingestion Pipeline (async, event-driven)
+- Multi-tenant Vector Store (Pinecone/Qdrant with namespace isolation)
+- Query Processing Layer (rewrite, route, retrieve, generate)
+- Conversation Memory (Redis for session, Postgres for long-term)
+- Guardrails Layer (input/output filtering)
+- Observability (Langfuse traces, Datadog metrics)
+"""
+
+# Simplified architecture in code
+from dataclasses import dataclass
+from enum import Enum
+
+class QueryComplexity(Enum):
+    SIMPLE = "simple"       # FAQ, direct lookup → GPT-4o-mini
+    MODERATE = "moderate"   # Multi-step reasoning → GPT-4o
+    COMPLEX = "complex"     # Multi-document synthesis → GPT-4o + CoT
+
+@dataclass
+class SystemConfig:
+    # Scaling parameters
+    max_concurrent_queries: int = 1000
+    cache_ttl_seconds: int = 3600
+    max_context_tokens: int = 8000
+    
+    # Cost controls
+    monthly_budget_usd: float = 5000.0
+    cost_per_query_target: float = 0.02
+    
+    # Quality thresholds
+    min_relevancy_score: float = 0.75
+    max_latency_p95_ms: int = 3000
+    
+    # Multi-tenancy
+    vector_namespace_per_tenant: bool = True
+    data_isolation: str = "namespace"  # or "collection" or "cluster"
+
+@dataclass  
+class DesignDecisions:
+    """Document your trade-offs explicitly."""
+    embedding_model: str = "text-embedding-3-small"  # Cost vs quality
+    chunk_size: int = 512  # Precision vs recall
+    chunk_overlap: int = 50
+    top_k_retrieval: int = 10  # Before re-ranking
+    top_k_final: int = 3  # After re-ranking
+    reranker: str = "cohere-rerank-v3"  # Accuracy boost worth latency cost
+    cache_strategy: str = "semantic"  # vs exact-match
+`}
+</CodeBlock>
+
+### 2. Multi-Agent Customer Service
+
+```
+Customer Message → Triage Agent (classify intent + urgency)
+    ├── Billing → Billing Agent (tool: payment API, refund API)
+    ├── Technical → Tech Agent (tool: docs RAG, ticket system)
+    ├── Sales → Sales Agent (tool: CRM, pricing engine)
+    └── Escalate → Human handoff (Zendesk/Intercom)
+    
+Each agent has:
+- Specialized system prompt
+- Restricted tool access (principle of least privilege)
+- Confidence threshold for escalation
+- Conversation memory scoped to session
+```
+
+### 3. Code Generation Platform
+
+```
+Code Request → Context Gathering
+    ├── Repository indexing (AST parsing, embeddings)
+    ├── Active file context (cursor position, open tabs)
+    └── Project conventions (linting rules, patterns)
+        ↓
+    Prompt Assembly (system + context + user intent)
+        ↓
+    Model Selection (speed for autocomplete, quality for generation)
+        ↓
+    Generation + Streaming
+        ↓
+    Post-processing (format, lint, type-check)
+        ↓
+    User Acceptance → Feedback Loop → Fine-tuning Data
+```
+
+## Production Considerations
+
+### Scalability Checklist
+
+| Concern | Solution | When to Apply |
+|---------|----------|--------------|
+| High QPS | Async processing + queues | > 100 QPS |
+| Large documents | Chunking + streaming ingestion | > 10K docs |
+| Multi-tenant | Namespace isolation + rate limiting | > 10 tenants |
+| Global users | Regional deployments + edge caching | Multi-region |
+| Burst traffic | Auto-scaling + request queuing | Unpredictable load |
+
+### Cost Optimization Strategies
+
+<CodeBlock language="python" title="cost_optimization.py" client:load>
+{`# Strategy 1: Semantic Caching
+# Cache responses for semantically similar queries
+import hashlib
+import numpy as np
+
+class SemanticCache:
+    def __init__(self, similarity_threshold: float = 0.95):
+        self.threshold = similarity_threshold
+        self.cache = {}  # embedding -> response
+    
+    def get(self, query_embedding: np.ndarray) -> str | None:
+        for cached_emb, response in self.cache.items():
+            similarity = np.dot(query_embedding, cached_emb) / (
+                np.linalg.norm(query_embedding) * np.linalg.norm(cached_emb)
+            )
+            if similarity > self.threshold:
+                return response
+        return None
+
+# Strategy 2: Model Routing by Complexity
+def route_to_model(query: str, complexity_score: float) -> str:
+    """Route queries to appropriate model based on complexity."""
+    if complexity_score < 0.3:
+        return "gpt-4o-mini"      # $0.15/1M input tokens
+    elif complexity_score < 0.7:
+        return "gpt-4o"           # $2.50/1M input tokens
+    else:
+        return "gpt-4o"           # + chain-of-thought prompting
+
+# Strategy 3: Context Window Optimization
+def optimize_context(chunks: list[str], max_tokens: int = 4000) -> list[str]:
+    """Keep only the most relevant chunks within budget."""
+    # Re-rank and truncate to stay within token budget
+    selected = []
+    current_tokens = 0
+    for chunk in chunks:  # Assume pre-sorted by relevance
+        chunk_tokens = len(chunk.split()) * 1.3  # Rough estimate
+        if current_tokens + chunk_tokens > max_tokens:
+            break
+        selected.append(chunk)
+        current_tokens += chunk_tokens
+    return selected
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Latency Budget" client:load>
+  In a typical RAG pipeline: embedding (50ms) + retrieval (100ms) + re-ranking (200ms) + LLM generation (1-3s) = 1.5-3.5s total. Users expect < 2s for chat. Optimize the critical path: parallelize retrieval, stream generation, cache aggressively.
+</Callout>
+
+## System Design Interview Framework
+
+Use this 5-step framework for AI system design interviews:
+
+### Step 1: Requirements Clarification (5 min)
+- Functional requirements (what does it do?)
+- Non-functional requirements (scale, latency, cost, accuracy)
+- Constraints (budget, team size, timeline, compliance)
+
+### Step 2: High-Level Architecture (10 min)
+- Draw the main components and data flow
+- Identify which components are AI-specific vs. standard infrastructure
+
+### Step 3: Deep Dive on AI Components (15 min)
+- Model selection and routing
+- Data pipeline and preprocessing
+- Retrieval strategy (if applicable)
+- Evaluation and monitoring approach
+
+### Step 4: Scaling & Production (10 min)
+- How does it handle 10x/100x traffic?
+- Failure modes and fallbacks
+- Cost projections
+
+### Step 5: Trade-offs Discussion (5 min)
+- What did you optimize for? What did you sacrifice?
+- Alternative approaches and when they'd be better
+
+## Practice Problems
+
+1. **Document Processing Pipeline** — Design a system that ingests 1M PDFs, extracts content, and enables semantic search across them for 10K daily users.
+
+2. **Customer Support Bot** — Design a multi-channel (chat, email, voice) AI support system handling 50K conversations/day with human escalation.
+
+3. **Code Generation Service** — Design a Copilot-like system serving autocomplete to 100K developers with < 200ms latency.
+
+4. **Content Recommendation** — Design an AI-powered content recommendation system that personalizes using user behavior + LLM understanding.
+
+5. **Real-time Content Moderation** — Design a system moderating 1M posts/hour across text, images, and video with < 500ms latency.
+
+<Callout type="tip" title="Practice Out Loud" client:load>
+  System design is a communication exercise as much as a technical one. Practice explaining your designs out loud — to a rubber duck, a friend, or a recording. Interviewers evaluate your thought process, not just the final design.
+</Callout>
+
+## Key Resources
+
+- **[a16z: Emerging Architectures for LLM Applications](https://a16z.com/emerging-architectures-for-llm-applications/)** — Industry reference for AI system patterns
+- **[Chip Huyen: Building LLM Applications for Production](https://huyenchip.com/2023/04/11/llm-engineering.html)** — Production considerations deep dive
+- **[Eugene Yan: Patterns for Building LLM Systems](https://eugeneyan.com/writing/llm-patterns/)** — Practical patterns with trade-offs
+- **[System Design for AI Engineers (GitHub)](https://github.com/systemdesign42/system-design)** — Community-curated problems and solutions
+
+## Key Takeaways
+
+1. **Every design is a trade-off** — explicitly document what you're optimizing for
+2. **Model routing saves 60-80% cost** — don't use GPT-4o for simple queries
+3. **Semantic caching is powerful** — similar queries don't need repeated computation
+4. **Design for failure** — LLM APIs go down; have fallbacks and graceful degradation
+5. **Start simple, then scale** — premature optimization in AI systems wastes money
+6. **Practice the framework** — system design interviews test communication + reasoning
+
+---
+
+## Next Steps
+
+You now have the architectural knowledge to build at scale. In **Week 24: Portfolio & Projects**, you'll apply everything you've learned to build impressive capstone projects that demonstrate your full-stack AI engineering skills.

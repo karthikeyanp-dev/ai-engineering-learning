@@ -1,0 +1,345 @@
+---
+title: "Advanced Prompting & Function Calling"
+description: "Master Chain-of-Thought reasoning, ReAct patterns, function calling with OpenAI and Anthropic APIs, and streaming response implementation"
+phase: 1
+week: 3
+objectives:
+  - "Implement Chain-of-Thought (CoT) and Tree-of-Thought prompting"
+  - "Understand ReAct pattern for reasoning and action"
+  - "Build function calling with OpenAI and Anthropic APIs"
+  - "Implement streaming responses for real-time UIs"
+estimatedTime: "10-12 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=hhvkGSgSODc"
+order: 3
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Basic prompting gets you 70% of the way there. Advanced techniques close the remaining gap — enabling LLMs to reason through complex problems, call external tools, and deliver results in real-time. These patterns are the foundation of AI agents and production systems.
+
+In this lesson, you'll learn the techniques that separate demos from production applications: structured reasoning with Chain-of-Thought, tool use through function calling, and responsive UIs through streaming. These are the building blocks you'll use throughout the rest of this curriculum.
+
+<Callout type="tip" title="When to Use Advanced Techniques" client:load>
+  Don't use Chain-of-Thought for simple classification or extraction — it adds latency and cost. Reserve advanced techniques for multi-step reasoning, math, logic problems, and tasks where intermediate steps improve accuracy.
+</Callout>
+
+## Recommended Video
+
+Watch the DeepLearning.AI course on building systems with the ChatGPT API:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=hhvkGSgSODc" title="Building Systems with the ChatGPT API — DeepLearning.AI" client:load />
+
+## Chain-of-Thought (CoT) Prompting
+
+Chain-of-Thought prompting asks the model to **show its reasoning** before giving a final answer. This dramatically improves accuracy on math, logic, and multi-step problems.
+
+### Zero-Shot CoT
+
+The simplest form — just add "Let's think step by step":
+
+<CodeBlock language="python" title="chain_of_thought.py" client:load>
+{`from openai import OpenAI
+
+client = OpenAI()
+
+# Without CoT — model often gets this wrong
+problem = """A store sells apples for $2 each. If you buy 5 or more, you get a 20% discount.
+You also have a $3 coupon. How much do you pay for 7 apples?"""
+
+# Direct prompting (often wrong on multi-step math)
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": "Solve the problem. Give only the final number."},
+        {"role": "user", "content": problem}
+    ],
+    temperature=0.0
+)
+print(f"Direct answer: {response.choices[0].message.content}")
+
+# With Chain-of-Thought (much more reliable)
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": """Solve the problem step by step.
+Show your reasoning clearly, then provide the final answer on the last line as: ANSWER: $X.XX"""},
+        {"role": "user", "content": problem}
+    ],
+    temperature=0.0
+)
+print(f"\\nCoT answer:\\n{response.choices[0].message.content}")
+# Step 1: 7 apples × $2 = $14
+# Step 2: 20% discount (5+ apples): $14 × 0.80 = $11.20
+# Step 3: Apply $3 coupon: $11.20 - $3 = $8.20
+# ANSWER: $8.20
+`}
+</CodeBlock>
+
+### Few-Shot CoT
+
+Provide examples of reasoning chains for even better results:
+
+<CodeBlock language="python" title="few_shot_cot.py" client:load>
+{`from openai import OpenAI
+
+client = OpenAI()
+
+messages = [
+    {"role": "system", "content": "Solve math word problems by reasoning step by step."},
+    # Example 1
+    {"role": "user", "content": "If a train travels at 60 mph for 2.5 hours, how far does it go?"},
+    {"role": "assistant", "content": """Step 1: Identify the formula: distance = speed × time
+Step 2: Plug in values: distance = 60 mph × 2.5 hours
+Step 3: Calculate: distance = 150 miles
+ANSWER: 150 miles"""},
+    # Example 2
+    {"role": "user", "content": "A shirt costs $40 with a 25% discount. What's the final price?"},
+    {"role": "assistant", "content": """Step 1: Calculate discount amount: $40 × 0.25 = $10
+Step 2: Subtract discount from original: $40 - $10 = $30
+ANSWER: $30"""},
+    # Actual problem
+    {"role": "user", "content": "A rectangular garden is 3 times as long as it is wide. If the perimeter is 96 meters, what is the area?"}
+]
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=messages,
+    temperature=0.0
+)
+print(response.choices[0].message.content)
+`}
+</CodeBlock>
+
+<Callout type="info" title="Tree-of-Thought" client:load>
+  Tree-of-Thought extends CoT by exploring multiple reasoning paths and evaluating which is most promising. It's like breadth-first search for reasoning. Useful for complex problems with multiple valid approaches, but significantly more expensive (multiple API calls).
+</Callout>
+
+## The ReAct Pattern
+
+ReAct (Reasoning + Acting) combines thinking with tool use. The model alternates between:
+1. **Thought** — Reasoning about what to do next
+2. **Action** — Calling a tool or function
+3. **Observation** — Processing the result
+
+This is the foundation of AI agents (covered in depth in Phase 3).
+
+<CodeBlock language="python" title="react_pattern.py" client:load>
+{`from openai import OpenAI
+
+client = OpenAI()
+
+# Simulated ReAct loop
+react_system = """You are a research assistant that can search the web and calculate.
+
+Available tools:
+- search(query): Search the web for information
+- calculate(expression): Evaluate a math expression
+
+For each step, use this format:
+Thought: [your reasoning about what to do next]
+Action: [tool_name(arguments)]
+
+After receiving an Observation, continue reasoning until you have the final answer.
+When done, respond with: Final Answer: [your answer]"""
+
+# In a real implementation, you'd parse the Action, execute the tool,
+# and feed the Observation back in a loop.
+print("ReAct pattern: Thought → Action → Observation → ... → Final Answer")
+`}
+</CodeBlock>
+
+## Function Calling (Tool Use)
+
+Function calling lets LLMs interact with external systems — APIs, databases, calculators, and more. The model decides *when* to call a function and with *what arguments*.
+
+### OpenAI Function Calling
+
+<CodeBlock language="python" title="function_calling_openai.py" client:load>
+{`from openai import OpenAI
+import json
+
+client = OpenAI()
+
+# Define available tools
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get the current weather for a location",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "City name, e.g. 'San Francisco, CA'"
+                    },
+                    "unit": {
+                        "type": "string",
+                        "enum": ["celsius", "fahrenheit"],
+                        "description": "Temperature unit"
+                    }
+                },
+                "required": ["location"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_products",
+            "description": "Search for products in the catalog",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "max_price": {"type": "number", "description": "Maximum price filter"},
+                    "category": {"type": "string", "enum": ["electronics", "clothing", "books"]}
+                },
+                "required": ["query"]
+            }
+        }
+    }
+]
+
+# Make the call — model decides whether to use a tool
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "What's the weather like in Tokyo?"}],
+    tools=tools,
+    tool_choice="auto"
+)
+
+message = response.choices[0].message
+
+if message.tool_calls:
+    for tool_call in message.tool_calls:
+        print(f"Function: {tool_call.function.name}")
+        print(f"Arguments: {tool_call.function.arguments}")
+        
+        # In production, you'd execute the function here and send results back
+        args = json.loads(tool_call.function.arguments)
+        
+        # Simulate function execution
+        weather_result = {"temp": 22, "condition": "partly cloudy", "humidity": 65}
+        
+        # Send result back to model for final response
+        follow_up = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "user", "content": "What's the weather like in Tokyo?"},
+                message,
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps(weather_result)
+                }
+            ]
+        )
+        print(f"\\nFinal response: {follow_up.choices[0].message.content}")
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Function Calling Security" client:load>
+  Never trust model-generated arguments without validation. Always validate types, ranges, and permissions before executing any function. Treat tool calls like untrusted user input — sanitize everything.
+</Callout>
+
+## Streaming Responses
+
+Streaming delivers tokens to the user as they're generated, creating a responsive experience instead of waiting for the complete response:
+
+<CodeBlock language="python" title="streaming_implementation.py" client:load>
+{`from openai import OpenAI
+
+client = OpenAI()
+
+# Basic streaming
+print("Streaming response:")
+stream = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Explain quantum computing in 3 paragraphs."}],
+    stream=True
+)
+
+full_response = ""
+for chunk in stream:
+    if chunk.choices[0].delta.content is not None:
+        content = chunk.choices[0].delta.content
+        print(content, end="", flush=True)
+        full_response += content
+
+print(f"\\n\\nTotal length: {len(full_response)} characters")
+
+# Streaming with function calls
+print("\\n\\nStreaming with tools:")
+stream = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "What's 2+2 and what's the weather in NYC?"}],
+    tools=[{
+        "type": "function",
+        "function": {
+            "name": "calculate",
+            "description": "Perform math calculations",
+            "parameters": {
+                "type": "object",
+                "properties": {"expression": {"type": "string"}},
+                "required": ["expression"]
+            }
+        }
+    }],
+    stream=True
+)
+
+for chunk in stream:
+    delta = chunk.choices[0].delta
+    if delta.content:
+        print(delta.content, end="", flush=True)
+    if delta.tool_calls:
+        for tc in delta.tool_calls:
+            if tc.function.name:
+                print(f"\\n[Calling: {tc.function.name}]", end="")
+            if tc.function.arguments:
+                print(tc.function.arguments, end="")
+`}
+</CodeBlock>
+
+## Hands-On Project: Streaming Chat with Tool Use
+
+Build a complete streaming chat application with function calling:
+
+1. **Create a CLI chat interface** with streaming output
+2. **Add 3+ tools**: weather lookup, web search, calculator
+3. **Implement the tool execution loop**: detect tool calls → execute → feed results back
+4. **Add error handling**: timeouts, invalid arguments, API failures
+5. **Compare**: Run the same complex question with and without CoT
+
+<Callout type="important" title="Production Considerations" client:load>
+  In production streaming apps: implement backpressure handling, set up SSE (Server-Sent Events) for web UIs, handle disconnections gracefully, and log all tool calls for debugging and auditing.
+</Callout>
+
+## Key Resources
+
+- [Chain-of-Thought Prompting Paper](https://arxiv.org/abs/2201.11903) — Original CoT research
+- [ReAct Paper](https://arxiv.org/abs/2210.03629) — Reasoning + Acting framework
+- [OpenAI Function Calling Guide](https://platform.openai.com/docs/guides/function-calling) — Official docs
+- [Anthropic Tool Use](https://docs.anthropic.com/claude/docs/tool-use) — Claude's implementation
+- [Tree of Thoughts Paper](https://arxiv.org/abs/2305.10601) — ToT framework
+
+## Summary
+
+- **Chain-of-Thought** improves accuracy on complex reasoning by 20-40% — use for math, logic, and multi-step tasks
+- **ReAct** combines reasoning with tool use — the foundation of AI agents
+- **Function calling** lets models interact with external systems safely and reliably
+- **Streaming** delivers responsive UIs — essential for production chat applications
+- Always **validate tool arguments** and handle errors gracefully
+
+---
+
+## Next Steps
+
+You've mastered prompting. In Phase 2, you'll build **RAG systems** — combining retrieval with generation to give LLMs access to your own data, starting with the full RAG pipeline from ingestion to generation.

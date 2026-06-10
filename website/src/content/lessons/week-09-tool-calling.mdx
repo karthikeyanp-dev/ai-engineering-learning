@@ -1,0 +1,424 @@
+---
+title: "Tool Calling & Complex Agent Behaviors"
+description: "Master structured tool definitions, error handling, and building agents that interact with real APIs and databases"
+phase: 3
+week: 9
+objectives:
+  - "Design effective tool schemas for LLM function calling"
+  - "Implement robust error handling and retry strategies"
+  - "Build agents that query databases and call APIs"
+  - "Create a code assistant that debugs iteratively"
+estimatedTime: "8-10 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=aqdWSYWC_LI"
+order: 9
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Tool calling is the bridge between LLMs and the real world. Without tools, a language model can only generate text. With tools, it can query databases, call APIs, execute code, and take real actions. But designing tools that LLMs use correctly is surprisingly hard — ambiguous schemas lead to wrong arguments, missing error handling causes silent failures, and poorly structured outputs break downstream logic.
+
+In this lesson, you'll learn how to design tool schemas that LLMs understand reliably, implement robust error handling patterns, and build agents that interact with databases and external APIs without falling apart at the first error.
+
+<Callout type="tip" title="Tool Design Is the New API Design" client:load>
+  Just like good API design makes developers productive, good tool schema design makes LLMs effective. A well-designed tool schema is self-documenting, hard to misuse, and produces structured outputs. Invest time in your tool definitions — it pays off exponentially as your agent grows.
+</Callout>
+
+## Recommended Video
+
+DeepLearning.AI's course on tool calling and function calling covers structured outputs and best practices:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=aqdWSYWC_LI" title="Tool Calling & Function Calling — DeepLearning.AI" client:load />
+
+## Structured Tool Definitions
+
+### JSON Schema for OpenAI and Anthropic
+
+Both OpenAI and Anthropic use JSON Schema to define tool interfaces. The key is making schemas that are unambiguous and descriptive:
+
+<CodeBlock language="python" title="tool_schemas.py" client:load>
+{`from openai import OpenAI
+import json
+
+client = OpenAI()
+
+# Define tool schemas with clear descriptions and constraints
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "query_database",
+            "description": "Execute a SQL query against the sales database. Use for retrieving data about orders, customers, and products. Read-only queries only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sql": {
+                        "type": "string",
+                        "description": "The SQL query to execute. Must be a SELECT statement. Table names: orders, customers, products."
+                    },
+                    "max_rows": {
+                        "type": "integer",
+                        "description": "Maximum number of rows to return. Default 100.",
+                        "default": 100,
+                        "minimum": 1,
+                        "maximum": 1000
+                    }
+                },
+                "required": ["sql"],
+                "additionalProperties": False
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_customer",
+            "description": "Look up a customer by email or ID. Returns customer details and recent orders.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "description": "Customer email address",
+                        "format": "email"
+                    },
+                    "customer_id": {
+                        "type": "string",
+                        "description": "Customer ID starting with 'cust_'"
+                    }
+                },
+                "required": [],
+                "additionalProperties": False
+            }
+        }
+    }
+]
+
+# Using the tools
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": "You are a database assistant. Help users query the sales database."},
+        {"role": "user", "content": "Show me the top 5 customers by total spend this month"}
+    ],
+    tools=tools
+)
+
+print(response.choices[0].message.tool_calls[0].function)
+`}
+</CodeBlock>
+
+<Callout type="important" title="Schema Design Best Practices" client:load>
+  - **Be explicit**: "SQL query to execute" is better than "query"
+  - **Set constraints**: Use `minimum`, `maximum`, `enum`, and `format` to restrict inputs
+  - **Mark required fields**: Only mark fields that are truly required
+  - **Set `additionalProperties: False`** to prevent the LLM from inventing parameters
+  - **Provide examples** in descriptions when the format isn't obvious
+  - **Use enums** for fields with a fixed set of valid values
+</Callout>
+
+### LangChain Tool Definitions
+
+LangChain provides a cleaner Python-native way to define tools using decorators:
+
+<CodeBlock language="python" title="langchain_tools.py" client:load>
+{`from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+
+# Method 1: Decorator with type hints and docstrings
+@tool
+def search_products(query: str, category: str | None = None, max_price: float | None = None) -> str:
+    """Search the product catalog.
+
+    Args:
+        query: Search terms, e.g. 'wireless headphones'
+        category: Product category filter. One of: electronics, clothing, home, sports
+        max_price: Maximum price filter in USD
+    """
+    # Implementation here
+    return f"Found 5 products matching '{query}' in {category or 'all categories'}"
+
+# Method 2: Pydantic model for complex schemas
+class DatabaseQueryInput(BaseModel):
+    sql: str = Field(description="SELECT query only. Tables: orders, customers, products")
+    max_rows: int = Field(default=100, ge=1, le=1000, description="Max rows to return")
+
+@tool(args_schema=DatabaseQueryInput)
+def query_database(sql: str, max_rows: int = 100) -> str:
+    """Execute a read-only SQL query against the sales database."""
+    # Validate it's a SELECT query
+    if not sql.strip().upper().startswith("SELECT"):
+        return "Error: Only SELECT queries are allowed."
+    # Execute query...
+    return f"Query returned results (limited to {max_rows} rows)"
+
+tools = [search_products, query_database]
+`}
+</CodeBlock>
+
+## Error Handling Patterns
+
+Agents that fail silently are dangerous. You need robust error handling at every layer:
+
+<CodeBlock language="python" title="error_handling.py" client:load>
+{`import time
+from functools import wraps
+from typing import Callable, Any
+
+# Pattern 1: Retry with exponential backoff
+def with_retry(max_retries: int = 3, base_delay: float = 1.0):
+    """Decorator that retries a tool on failure with exponential backoff."""
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        print(f"  Retry {attempt+1}/{max_retries} after {delay}s: {e}")
+                        time.sleep(delay)
+            return f"Error after {max_retries} retries: {last_error}"
+        return wrapper
+    return decorator
+
+# Pattern 2: Fallback to alternative tool
+def with_fallback(primary: Callable, fallback: Callable) -> Callable:
+    """Try primary tool, fall back to alternative on failure."""
+    def wrapper(*args, **kwargs) -> Any:
+        try:
+            return primary(*args, **kwargs)
+        except Exception as e:
+            print(f"  Primary failed ({e}), using fallback...")
+            return fallback(*args, **kwargs)
+    return wrapper
+
+# Pattern 3: Graceful degradation
+@tool
+def search_web(query: str) -> str:
+    """Search the web for current information."""
+    try:
+        # Try primary search API
+        return tavily_search(query)
+    except ConnectionError:
+        # Fall back to cached results
+        cached = get_cached_results(query)
+        if cached:
+            return f"[CACHED] {cached}"
+        return "Search is currently unavailable. Please try again later."
+    except Exception as e:
+        return f"Search error: {str(e)}. Please rephrase your query."
+
+@tool
+@with_retry(max_retries=2, base_delay=0.5)
+def call_api(endpoint: str, params: dict) -> str:
+    """Call an external API endpoint."""
+    # Simulated API call that might fail
+    response = requests.get(endpoint, params=params, timeout=10)
+    response.raise_for_status()
+    return response.json()
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Never Let Errors Propagate Silently" client:load>
+  If a tool fails and returns a generic error message, the LLM has no information to adjust its approach. Always return structured error messages that explain what went wrong and suggest alternatives. "Error: API rate limit exceeded. Try again in 60 seconds or use the database tool instead" is far more useful than "Error: API call failed."
+</Callout>
+
+## Database Agent
+
+One of the most practical agent patterns is a database-querying agent. The LLM translates natural language to SQL, executes it, and explains the results:
+
+<CodeBlock language="python" title="database_agent.py" client:load>
+{`from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
+from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+import sqlite3
+
+# Database setup
+conn = sqlite3.connect("sales.db")
+
+@tool
+def list_tables() -> str:
+    """List all available tables in the database with their columns."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = cursor.fetchall()
+    result = []
+    for (table_name,) in tables:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = cursor.fetchall()
+        col_info = ", ".join(f"{c[1]} ({c[2]})" for c in columns)
+        result.append(f"  {table_name}: {col_info}")
+    return "Available tables:\\n" + "\\n".join(result)
+
+@tool
+def execute_query(sql: str) -> str:
+    """Execute a SQL query on the sales database. Only SELECT statements allowed.
+    
+    Args:
+        sql: A valid SQL SELECT query
+    """
+    # Safety check
+    if not sql.strip().upper().startswith("SELECT"):
+        return "Error: Only SELECT queries are permitted."
+    
+    # Limit results
+    if "LIMIT" not in sql.upper():
+        sql = sql.rstrip(";") + " LIMIT 50;"
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        
+        if not rows:
+            return "Query returned 0 rows."
+        
+        # Format as markdown table
+        header = "| " + " | ".join(columns) + " |"
+        separator = "| " + " | ".join(["---"] * len(columns)) + " |"
+        data_rows = ["| " + " | ".join(str(v) for v in row) + " |" for row in rows]
+        
+        result = f"Returned {len(rows)} rows:\\n" + "\\n".join([header, separator] + data_rows)
+        return result
+    except Exception as e:
+        return f"SQL Error: {e}. Try using list_tables to see available tables and columns."
+
+tools = [list_tables, execute_query]
+
+# Build the agent
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+model = ChatOpenAI(model="gpt-4o-mini").bind_tools(tools)
+
+def agent_node(state: AgentState):
+    system = """You are a database assistant. Help users query the sales database.
+    Always start by listing tables if you don't know the schema.
+    Validate your SQL before executing. Explain results in plain language."""
+    messages = [{"role": "system", "content": system}] + state["messages"]
+    response = model.invoke(messages)
+    return {"messages": [response]}
+
+def should_continue(state: AgentState):
+    last = state["messages"][-1]
+    return "tools" if last.tool_calls else END
+
+graph = StateGraph(AgentState)
+graph.add_node("agent", agent_node)
+graph.add_node("tools", ToolNode(tools))
+graph.add_edge(START, "agent")
+graph.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
+graph.add_edge("tools", "agent")
+
+db_agent = graph.compile()
+`}
+</CodeBlock>
+
+## Building a Code Assistant
+
+A code assistant that iteratively debugs is a powerful pattern — the agent writes code, runs it, sees errors, and fixes them:
+
+<CodeBlock language="python" title="code_assistant.py" client:load>
+{`from langchain_core.tools import tool
+import subprocess
+import tempfile
+import os
+
+@tool
+def run_python(code: str) -> str:
+    """Execute Python code and return the output or error message.
+    
+    Args:
+        code: Python code to execute
+    """
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write(code)
+        path = f.name
+    
+    try:
+        result = subprocess.run(
+            ["python", path], capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            output = result.stdout
+            return output if output else "Code executed successfully (no output)."
+        else:
+            return f"Error:\\n{result.stderr}"
+    except subprocess.TimeoutExpired:
+        return "Error: Code execution timed out after 30 seconds."
+    finally:
+        os.unlink(path)
+
+@tool
+def read_file(filepath: str) -> str:
+    """Read the contents of a file."""
+    try:
+        with open(filepath, 'r') as f:
+            return f.read()
+    except FileNotFoundError:
+        return f"Error: File '{filepath}' not found."
+    except Exception as e:
+        return f"Error reading file: {e}"
+
+@tool
+def write_file(filepath: str, content: str) -> str:
+    """Write content to a file."""
+    try:
+        with open(filepath, 'w') as f:
+            f.write(content)
+        return f"Successfully wrote to {filepath}"
+    except Exception as e:
+        return f"Error writing file: {e}"
+
+# The agent loop: write code -> run it -> see errors -> fix -> repeat
+code_tools = [run_python, read_file, write_file]
+`}
+</CodeBlock>
+
+## Hands-On Project: Database Query Agent with Visualization
+
+Build a complete agent that lets users ask questions in natural language, queries a database, and formats results:
+
+1. **Set up a sample database** with 3-4 tables (customers, orders, products, reviews)
+2. **Define tools**: `list_tables`, `execute_query`, `explain_results`
+3. **Build with LangGraph** using the ReAct pattern
+4. **Add error handling**: SQL validation, retry on connection errors, graceful degradation
+5. **Add result visualization**: Format results as markdown tables and simple ASCII charts
+6. **Test with real questions**: "What are the top 10 products by revenue?" or "How many new customers signed up last month?"
+
+<Callout type="important" title="SQL Injection Protection" client:load>
+  When letting LLMs generate SQL, always: (1) restrict to SELECT statements only, (2) use parameterized queries where possible, (3) limit row counts, (4) run against a read replica if available, (5) add a human approval step for queries on sensitive data.
+</Callout>
+
+## Key Resources
+
+- [OpenAI Function Calling Guide](https://platform.openai.com/docs/guides/function-calling) — Official tool calling documentation
+- [Anthropic Tool Use](https://docs.anthropic.com/en/docs/build-with-claude/tool-use) — Anthropic's tool use patterns
+- [LangChain Tools](https://python.langchain.com/docs/concepts/tools/) — Tool definition patterns
+- [SQL Agent Tutorial](https://langchain-ai.github.io/langgraph/tutorials/sql-agent/) — Building a SQL agent with LangGraph
+
+## Summary
+
+- **Tool schemas** are your LLM's API — design them with the same care you'd design a developer API
+- **Error handling** must be multi-layered: retries for transient failures, fallbacks for outages, graceful degradation for persistent issues
+- **Database agents** are one of the most practical patterns — natural language to SQL is a solved problem
+- **Code assistants** demonstrate iterative debugging — the agent loop of write-run-observe-fix
+- Always return **structured error messages** that help the LLM adjust its approach
+
+---
+
+## Next Steps
+
+You can build a single agent, but what if multiple agents need to collaborate? Next, you'll learn **multi-agent systems** — supervisor patterns, hierarchical delegation, and agent debates for better reasoning.

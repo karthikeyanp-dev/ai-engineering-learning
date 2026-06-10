@@ -1,0 +1,87 @@
+---
+import MainLayout from '../../layouts/MainLayout.astro';
+---
+
+<MainLayout title="Resources - AI Engineering Learning">
+  <div class="py-8 space-y-10">
+    <!-- Hero -->
+    <div>
+      <h1 class="text-3xl font-bold mb-3">Resources Hub</h1>
+      <p class="text-[var(--color-text-secondary)] text-lg leading-relaxed">
+        Your curated collection of learning materials, tools, and interactive guides for becoming a Full Stack AI Engineer.
+      </p>
+    </div>
+
+    <!-- Learning Resources -->
+    <section>
+      <h2 class="text-xl font-bold mb-4 text-[var(--color-text-secondary)]">Learning Resources</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <a href="/resources/github" class="block rounded-xl p-6 bg-[var(--color-bg-secondary)] border border-white/10 hover:border-[var(--color-accent-start)]/50 hover:-translate-y-0.5 transition-all duration-300 group">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="text-2xl">📦</span>
+            <h3 class="font-semibold text-white group-hover:text-[var(--color-accent-start)] transition-colors">GitHub Repositories</h3>
+          </div>
+          <p class="text-sm text-[var(--color-text-muted)] mb-3">Curated repos from learning paths to production frameworks.</p>
+          <span class="text-xs text-[var(--color-accent-start)]">33+ repositories &rarr;</span>
+        </a>
+
+        <a href="/resources/youtube" class="block rounded-xl p-6 bg-[var(--color-bg-secondary)] border border-white/10 hover:border-red-500/50 hover:-translate-y-0.5 transition-all duration-300 group">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="text-2xl">🎬</span>
+            <h3 class="font-semibold text-white group-hover:text-red-400 transition-colors">YouTube Channels</h3>
+          </div>
+          <p class="text-sm text-[var(--color-text-muted)] mb-3">Top channels for AI Engineering from basics to advanced.</p>
+          <span class="text-xs text-red-400">12 channels + playlists &rarr;</span>
+        </a>
+
+        <a href="/resources/courses" class="block rounded-xl p-6 bg-[var(--color-bg-secondary)] border border-white/10 hover:border-[var(--color-success)]/50 hover:-translate-y-0.5 transition-all duration-300 group">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="text-2xl">🎓</span>
+            <h3 class="font-semibold text-white group-hover:text-[var(--color-success)] transition-colors">Courses Directory</h3>
+          </div>
+          <p class="text-sm text-[var(--color-text-muted)] mb-3">Free & paid courses from DeepLearning.AI, HuggingFace, Stanford, and more.</p>
+          <span class="text-xs text-[var(--color-success)]">18+ courses &rarr;</span>
+        </a>
+
+        <div class="block rounded-xl p-6 bg-[var(--color-bg-secondary)] border border-white/10 opacity-60">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="text-2xl">📄</span>
+            <h3 class="font-semibold text-white">Research Papers</h3>
+          </div>
+          <p class="text-sm text-[var(--color-text-muted)] mb-3">Key papers in LLMs, RAG, agents, and more.</p>
+          <span class="text-xs text-[var(--color-text-muted)]">Coming soon</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Tools -->
+    <section>
+      <h2 class="text-xl font-bold mb-4 text-[var(--color-text-secondary)]">Interactive Tools</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <a href="/resources/tools" class="block rounded-xl p-6 bg-[var(--color-bg-secondary)] border border-white/10 hover:border-[var(--color-info)]/50 hover:-translate-y-0.5 transition-all duration-300 group">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="text-2xl">🗄️</span>
+            <h3 class="font-semibold text-white group-hover:text-[var(--color-info)] transition-colors">Vector DB Selector</h3>
+          </div>
+          <p class="text-sm text-[var(--color-text-muted)]">Compare 7 vector databases and take a quiz to find your match.</p>
+        </a>
+
+        <a href="/resources/tools" class="block rounded-xl p-6 bg-[var(--color-bg-secondary)] border border-white/10 hover:border-[var(--color-warning)]/50 hover:-translate-y-0.5 transition-all duration-300 group">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="text-2xl">⚡</span>
+            <h3 class="font-semibold text-white group-hover:text-[var(--color-warning)] transition-colors">Framework Comparison</h3>
+          </div>
+          <p class="text-sm text-[var(--color-text-muted)]">Side-by-side comparison of 9 LLM and agent frameworks.</p>
+        </a>
+
+        <a href="/resources/tools" class="block rounded-xl p-6 bg-[var(--color-bg-secondary)] border border-white/10 hover:border-purple-500/50 hover:-translate-y-0.5 transition-all duration-300 group">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="text-2xl">🧭</span>
+            <h3 class="font-semibold text-white group-hover:text-purple-400 transition-colors">Decision Matrix</h3>
+          </div>
+          <p class="text-sm text-[var(--color-text-muted)]">RAG vs Fine-Tuning vs Prompting — find the right approach.</p>
+        </a>
+      </div>
+    </section>
+  </div>
+</MainLayout>

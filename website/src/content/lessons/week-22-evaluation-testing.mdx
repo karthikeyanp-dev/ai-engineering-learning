@@ -1,0 +1,303 @@
+---
+title: "LLM Evaluation, Testing & Observability"
+description: "Master evaluation frameworks, testing strategies, and monitoring for production AI systems"
+phase: 7
+week: 22
+objectives:
+  - "Implement evaluation pipelines with RAGAS and DeepEval"
+  - "Design comprehensive testing strategies for LLM applications"
+  - "Set up observability and monitoring with Langfuse and Helicone"
+  - "Build custom evaluation metrics and continuous eval pipelines"
+estimatedTime: "10-12 hours"
+difficulty: "advanced"
+videoUrl: "https://www.youtube.com/watch?v=0jqNcOTkRiY"
+order: 22
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+You've built your RAG pipeline, deployed your agents, and everything works in development. But how do you know it actually works *well*? How do you catch regressions before users do? How do you measure whether your system is faithful, relevant, and safe?
+
+**Evaluation is the hardest unsolved problem in AI engineering.** Unlike traditional software where tests are deterministic, LLM outputs are probabilistic. A response can be "correct" in many different ways — or subtly wrong in ways that are hard to detect automatically. This lesson gives you the frameworks, metrics, and strategies to build confidence in your AI systems.
+
+Production AI teams spend 30-40% of their engineering effort on evaluation and monitoring. This isn't overhead — it's what separates toy demos from reliable products.
+
+<Callout type="important" title="Eval-Driven Development" client:load>
+  The best AI teams practice "eval-driven development" — they write evaluation criteria BEFORE building features, similar to TDD. If you can't measure it, you can't improve it.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=0jqNcOTkRiY" title="DeepLearning.AI - Evaluating LLM Applications" client:load />
+
+## Key Evaluation Metrics
+
+### RAG-Specific Metrics
+
+| Metric | What It Measures | Good Score |
+|--------|-----------------|------------|
+| **Faithfulness** | Is the answer supported by retrieved context? | > 0.85 |
+| **Answer Relevancy** | Does the answer address the question? | > 0.80 |
+| **Context Precision** | Are retrieved chunks actually relevant? | > 0.75 |
+| **Context Recall** | Did we retrieve all needed information? | > 0.70 |
+
+### General LLM Metrics
+
+| Metric | What It Measures | How to Measure |
+|--------|-----------------|----------------|
+| **Latency (P50/P95/P99)** | Response time | Instrumentation |
+| **Cost per query** | Token usage × price | Token counting |
+| **User satisfaction** | End-user experience | Thumbs up/down, CSAT |
+| **Hallucination rate** | Factual errors | LLM-as-judge + human review |
+| **Toxicity/Safety** | Harmful outputs | Classifiers + red teaming |
+
+## Evaluation Frameworks
+
+### RAGAS — RAG Assessment
+
+<CodeBlock language="python" title="ragas_evaluation.py" client:load>
+{`from ragas import evaluate
+from ragas.metrics import (
+    faithfulness,
+    answer_relevancy,
+    context_precision,
+    context_recall,
+)
+from datasets import Dataset
+
+# Prepare your evaluation dataset
+eval_data = {
+    "question": [
+        "What is the capital of France?",
+        "How does photosynthesis work?",
+        "What are the benefits of RAG?",
+    ],
+    "answer": [
+        "The capital of France is Paris.",
+        "Photosynthesis converts sunlight into chemical energy in plants.",
+        "RAG reduces hallucinations by grounding responses in retrieved documents.",
+    ],
+    "contexts": [
+        ["Paris is the capital and largest city of France."],
+        ["Photosynthesis is the process by which plants convert light energy into chemical energy."],
+        ["RAG (Retrieval-Augmented Generation) grounds LLM responses in factual documents, reducing hallucination rates significantly."],
+    ],
+    "ground_truth": [
+        "Paris is the capital of France.",
+        "Photosynthesis is the process where plants use sunlight to synthesize foods from CO2 and water.",
+        "RAG reduces hallucinations and improves factual accuracy by retrieving relevant documents.",
+    ],
+}
+
+dataset = Dataset.from_dict(eval_data)
+
+# Run evaluation
+results = evaluate(
+    dataset=dataset,
+    metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
+)
+
+print(results)
+# {'faithfulness': 0.92, 'answer_relevancy': 0.88, 'context_precision': 0.85, ...}
+`}
+</CodeBlock>
+
+### DeepEval — Unit Testing for LLMs
+
+<CodeBlock language="python" title="deepeval_tests.py" client:load>
+{`import pytest
+from deepeval import assert_test
+from deepeval.test_case import LLMTestCase
+from deepeval.metrics import (
+    FaithfulnessMetric,
+    AnswerRelevancyMetric,
+    HallucinationMetric,
+    ToxicityMetric,
+)
+
+# Define test cases like you would unit tests
+def test_rag_faithfulness():
+    """Test that answers are grounded in context."""
+    test_case = LLMTestCase(
+        input="What are the side effects of aspirin?",
+        actual_output="Aspirin can cause stomach bleeding, nausea, and allergic reactions.",
+        retrieval_context=[
+            "Common side effects of aspirin include stomach irritation, "
+            "gastrointestinal bleeding, nausea, and rare allergic reactions."
+        ],
+    )
+    metric = FaithfulnessMetric(threshold=0.8)
+    assert_test(test_case, [metric])
+
+def test_no_hallucination():
+    """Test that the model doesn't make things up."""
+    test_case = LLMTestCase(
+        input="What is the company's refund policy?",
+        actual_output="Our refund policy allows returns within 30 days of purchase.",
+        context=[
+            "Customers may return products within 30 days for a full refund. "
+            "Items must be in original packaging."
+        ],
+    )
+    metric = HallucinationMetric(threshold=0.5)
+    assert_test(test_case, [metric])
+
+def test_answer_relevancy():
+    """Test that answers actually address the question."""
+    test_case = LLMTestCase(
+        input="How do I reset my password?",
+        actual_output="To reset your password, go to Settings > Security > Reset Password and follow the prompts.",
+    )
+    metric = AnswerRelevancyMetric(threshold=0.7)
+    assert_test(test_case, [metric])
+
+# Run with: deepeval test run test_deepeval.py
+`}
+</CodeBlock>
+
+<Callout type="tip" title="CI/CD Integration" client:load>
+  DeepEval integrates directly with pytest. Add `deepeval test run` to your CI pipeline to catch regressions on every PR. Set up baseline scores and fail builds when metrics drop below thresholds.
+</Callout>
+
+### Custom Evaluation Metrics
+
+<CodeBlock language="python" title="custom_metrics.py" client:load>
+{`from openai import OpenAI
+import json
+
+client = OpenAI()
+
+def llm_as_judge(question: str, answer: str, criteria: str) -> dict:
+    """Use an LLM to evaluate another LLM's output."""
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": f"""You are an evaluation judge. 
+Score the answer on a scale of 1-5 based on: {criteria}
+Respond in JSON: {{"score": int, "reasoning": str}}"""},
+            {"role": "user", "content": f"Question: {question}\\nAnswer: {answer}"},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+    )
+    return json.loads(response.choices[0].message.content)
+
+# Domain-specific evaluation
+result = llm_as_judge(
+    question="Explain quantum entanglement to a 10-year-old",
+    answer="Quantum entanglement is when two particles are connected...",
+    criteria="Age-appropriateness, accuracy, clarity, engagement"
+)
+print(f"Score: {result['score']}/5 — {result['reasoning']}")
+`}
+</CodeBlock>
+
+## Testing Strategies for LLM Applications
+
+### Testing Pyramid for AI
+
+```
+        /  Red Teaming  \          ← Adversarial testing
+       /  A/B Testing     \        ← Production experiments  
+      /  Integration Tests   \     ← End-to-end pipelines
+     /  Regression Tests       \   ← Golden dataset checks
+    /  Unit Tests (DeepEval)     \ ← Individual components
+```
+
+### Types of Tests
+
+- **Unit Tests**: Individual prompt → response quality (DeepEval, Promptfoo)
+- **Integration Tests**: Full pipeline (query → retrieval → generation → response)
+- **Regression Tests**: Golden dataset of Q&A pairs that must always pass
+- **A/B Tests**: Compare model versions, prompt changes, or pipeline modifications
+- **Red Teaming**: Adversarial prompts to test safety and guardrails
+
+## Observability & Monitoring
+
+### Langfuse — Open Source LLM Observability
+
+<CodeBlock language="python" title="langfuse_tracing.py" client:load>
+{`from langfuse import Langfuse
+from langfuse.decorators import observe, langfuse_context
+
+langfuse = Langfuse()
+
+@observe()
+def rag_pipeline(query: str) -> str:
+    """Full RAG pipeline with automatic tracing."""
+    # Each step is automatically traced
+    docs = retrieve_documents(query)
+    context = format_context(docs)
+    response = generate_answer(query, context)
+    return response
+
+@observe()
+def retrieve_documents(query: str) -> list[str]:
+    # Retrieval is traced with latency, token count
+    langfuse_context.update_current_observation(
+        metadata={"retriever": "hybrid", "top_k": 5}
+    )
+    return ["doc1", "doc2", "doc3"]
+
+@observe()
+def generate_answer(query: str, context: str) -> str:
+    langfuse_context.update_current_observation(
+        metadata={"model": "gpt-4o", "temperature": 0.1}
+    )
+    return "Generated answer based on context..."
+
+# Langfuse dashboard shows: latency breakdown, cost, token usage, traces
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Don't Monitor Blindly" client:load>
+  Collecting traces without acting on them is just cost. Set up alerts for: latency P95 > 5s, hallucination rate > 10%, cost per query > $0.05, error rate > 1%. Review flagged traces weekly.
+</Callout>
+
+## Building Evaluation Datasets
+
+### Best Practices
+
+1. **Start with 50-100 high-quality examples** — manually curated, diverse scenarios
+2. **Include edge cases** — ambiguous questions, unanswerable questions, multi-hop reasoning
+3. **Version your eval sets** — track changes alongside code changes
+4. **Use production data** — sample real user queries (with consent) to keep evals realistic
+5. **Stratify by difficulty** — easy (60%), medium (30%), hard (10%)
+
+### Continuous Evaluation Pipeline
+
+```
+Production Traffic → Sample 5% → Run Evals → Dashboard
+                                      ↓
+                              Score < Threshold?
+                                      ↓
+                              Alert + Create Ticket
+```
+
+## Key Resources
+
+- **[RAGAS Documentation](https://docs.ragas.io/)** — Comprehensive RAG evaluation framework
+- **[DeepEval](https://docs.confident-ai.com/)** — Unit testing framework for LLMs
+- **[Langfuse](https://langfuse.com/docs)** — Open-source LLM observability platform
+- **[Promptfoo](https://www.promptfoo.dev/)** — CLI tool for prompt testing and evaluation
+- **[Hamel Husain: Your AI Product Needs Evals](https://hamel.dev/blog/posts/evals/)** — Essential read on eval strategy
+- **[Eugene Yan: Evaluation Metrics](https://eugeneyan.com/writing/llm-evaluations/)** — Comprehensive metrics overview
+
+## Key Takeaways
+
+1. **Evaluation is not optional** — it's 30-40% of production AI engineering effort
+2. **Use multiple metrics** — no single metric captures LLM quality completely
+3. **Automate with CI/CD** — run evals on every PR with DeepEval + pytest
+4. **Monitor in production** — use Langfuse/Helicone for traces, costs, and drift detection
+5. **Build eval datasets incrementally** — start small, add from production failures
+6. **LLM-as-judge works** — but validate judge accuracy against human labels periodically
+
+---
+
+## Next Steps
+
+With evaluation in place, you're ready for **Week 23: System Design** — where you'll learn to architect AI systems that scale to millions of users while maintaining quality, cost efficiency, and reliability.

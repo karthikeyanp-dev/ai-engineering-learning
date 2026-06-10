@@ -1,0 +1,73 @@
+---
+import { Sidebar } from '../components/ui/Sidebar';
+import { Header } from '../components/ui/Header';
+
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+}
+
+const { 
+  title = 'AI Engineering Academy - Learn to Build Production AI Systems', 
+  description = 'A comprehensive 24-week curriculum to become a Full Stack AI Engineer. Learn LLMs, RAG, Agents, Fine-Tuning, MLOps and more.',
+  image = '/favicon.svg'
+} = Astro.props;
+const currentPath = Astro.url.pathname;
+const canonicalUrl = new URL(currentPath, Astro.site || 'https://ai-engineering.academy').toString();
+const fullTitle = title === 'AI Engineering Academy' ? title : `${title} | AI Engineering Academy`;
+---
+
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#0a0a0f" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={image} />
+    <meta property="og:site_name" content="AI Engineering Academy" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={image} />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  </head>
+  <body class="min-h-screen bg-[var(--color-bg-primary)] text-[var(--color-text-primary)]">
+    <div class="flex flex-col h-screen">
+      <!-- Header -->
+      <Header client:load progress={0} />
+
+      <div class="flex flex-1 overflow-hidden">
+        <!-- Sidebar -->
+        <Sidebar client:load currentPath={currentPath} />
+
+        <!-- Main content -->
+        <main class="flex-1 overflow-y-auto">
+          <div class="mx-auto max-w-4xl px-4 sm:px-6 py-8">
+            <slot />
+          </div>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
+
+<style is:global>
+  @import '../styles/global.css';
+</style>

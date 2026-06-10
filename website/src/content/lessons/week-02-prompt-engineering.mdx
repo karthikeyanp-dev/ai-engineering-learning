@@ -1,0 +1,274 @@
+---
+title: "Prompt Engineering Fundamentals"
+description: "Master zero-shot, few-shot, and system prompt techniques for reliable LLM outputs including JSON extraction and structured generation"
+phase: 1
+week: 2
+objectives:
+  - "Master zero-shot, few-shot, and system prompt techniques"
+  - "Control output formatting with JSON mode and structured outputs"
+  - "Understand generation parameters (temperature, top-k, top-p)"
+  - "Build reliable prompts for classification, extraction, and generation"
+estimatedTime: "8-10 hours"
+difficulty: "beginner"
+videoUrl: "https://www.youtube.com/watch?v=jC4v5AS4RIM"
+order: 2
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Prompt engineering is the art and science of communicating effectively with LLMs. A well-crafted prompt can be the difference between a useless response and a production-ready output. This isn't just about asking questions — it's about designing *interfaces* between humans and AI systems.
+
+In this lesson, you'll learn systematic techniques for getting reliable, structured, and high-quality outputs from LLMs. These skills are foundational — every AI engineer uses them daily, whether building chatbots, data pipelines, or autonomous agents.
+
+<Callout type="tip" title="The 80/20 Rule of Prompt Engineering" client:load>
+  80% of prompt engineering value comes from mastering the basics: clear instructions, examples, and output formatting. Don't jump to complex techniques before nailing these fundamentals.
+</Callout>
+
+## Recommended Video
+
+DeepLearning.AI's ChatGPT Prompt Engineering course with Isa Fulford and Andrew Ng is the gold standard introduction:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=jC4v5AS4RIM" title="ChatGPT Prompt Engineering for Developers — DeepLearning.AI" client:load />
+
+## Zero-Shot Prompting
+
+Zero-shot prompting means giving the model a task with **no examples** — relying entirely on clear instructions and the model's pre-trained knowledge.
+
+### Principles of Effective Zero-Shot Prompts
+
+1. **Be specific** — Tell the model exactly what you want
+2. **Define the format** — Specify how the output should look
+3. **Set constraints** — Mention what to include/exclude
+4. **Assign a role** — Give context about perspective
+
+<CodeBlock language="python" title="zero_shot_examples.py" client:load>
+{`from openai import OpenAI
+
+client = OpenAI()
+
+def chat(system_prompt: str, user_message: str, temperature: float = 0.7) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ],
+        temperature=temperature
+    )
+    return response.choices[0].message.content
+
+# Classification (zero-shot)
+system = """You are a sentiment classifier. Classify the sentiment of the given text 
+as exactly one of: POSITIVE, NEGATIVE, or NEUTRAL. Respond with only the label."""
+
+result = chat(system, "The product arrived late but the quality exceeded my expectations.")
+print(f"Sentiment: {result}")  # POSITIVE
+
+# Extraction (zero-shot)
+system = """Extract all person names, organizations, and locations from the text.
+Format: one entity per line as TYPE: VALUE"""
+
+text = "Satya Nadella announced that Microsoft will invest $10B in OpenAI's San Francisco office."
+result = chat(system, text)
+print(result)
+`}
+</CodeBlock>
+
+## Few-Shot Prompting
+
+Few-shot prompting provides **examples** of the desired input-output behavior. This is one of the most powerful techniques — it shows the model *exactly* what you want through demonstration.
+
+<CodeBlock language="python" title="few_shot_prompting.py" client:load>
+{`from openai import OpenAI
+
+client = OpenAI()
+
+# Few-shot classification with examples
+messages = [
+    {"role": "system", "content": "Classify support tickets into categories. Respond with only the category."},
+    {"role": "user", "content": "I can't log in to my account"},
+    {"role": "assistant", "content": "AUTHENTICATION"},
+    {"role": "user", "content": "The page loads very slowly"},
+    {"role": "assistant", "content": "PERFORMANCE"},
+    {"role": "user", "content": "I was charged twice for my subscription"},
+    {"role": "assistant", "content": "BILLING"},
+    # Now the actual query
+    {"role": "user", "content": "My password reset email never arrived"}
+]
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=messages,
+    temperature=0.0
+)
+print(response.choices[0].message.content)  # AUTHENTICATION
+`}
+</CodeBlock>
+
+<Callout type="info" title="How Many Examples?" client:load>
+  For most tasks, 3-5 examples are sufficient. More examples help with complex or ambiguous tasks. Choose examples that cover edge cases and different categories. Diverse examples outperform redundant ones.
+</Callout>
+
+## Structured Output & JSON Mode
+
+Getting LLMs to output valid JSON is critical for production applications. Here's how to do it reliably:
+
+<CodeBlock language="python" title="json_extraction.py" client:load>
+{`from openai import OpenAI
+import json
+
+client = OpenAI()
+
+# Method 1: JSON mode (guaranteed valid JSON)
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": """Extract product information from the review.
+Return a JSON object with these fields:
+- product_name (string)
+- rating (number 1-5)
+- pros (array of strings)
+- cons (array of strings)
+- would_recommend (boolean)"""},
+        {"role": "user", "content": """I bought the Sony WH-1000XM5 headphones last month. 
+The noise cancellation is incredible and they're super comfortable for long flights. 
+Battery life is amazing at 30 hours. However, they don't fold flat like the XM4s 
+and the price is steep at $400. I'd give them 4/5 and would definitely recommend them."""}
+    ],
+    response_format={"type": "json_object"},
+    temperature=0.0
+)
+
+data = json.loads(response.choices[0].message.content)
+print(json.dumps(data, indent=2))
+# {
+#   "product_name": "Sony WH-1000XM5",
+#   "rating": 4,
+#   "pros": ["incredible noise cancellation", "comfortable", "30-hour battery"],
+#   "cons": ["don't fold flat", "expensive at $400"],
+#   "would_recommend": true
+# }
+`}
+</CodeBlock>
+
+## Generation Parameters Deep Dive
+
+Understanding generation parameters gives you fine-grained control over model outputs:
+
+<CodeBlock language="python" title="temperature_comparison.py" client:load>
+{`from openai import OpenAI
+
+client = OpenAI()
+
+prompt = "Write a one-sentence tagline for a coffee shop called 'Morning Ritual'"
+
+print("=== Temperature Comparison ===\\n")
+for temp in [0.0, 0.5, 1.0, 1.5]:
+    responses = []
+    for _ in range(3):
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temp,
+            max_tokens=50
+        )
+        responses.append(response.choices[0].message.content)
+    
+    print(f"Temperature {temp}:")
+    for r in responses:
+        print(f"  - {r}")
+    print()
+
+# Key insight: temp=0 gives identical outputs every time
+# Higher temps give more variety but risk incoherence above 1.5
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Parameter Guidelines for Production" client:load>
+  - **Classification/Extraction**: temperature=0.0, no top-p needed
+  - **Summarization**: temperature=0.3, top-p=0.9
+  - **Creative writing**: temperature=0.8-1.0
+  - **Code generation**: temperature=0.2-0.4
+  - Never set both temperature AND top-p to extreme values simultaneously
+</Callout>
+
+## System Prompts: Setting the Stage
+
+The system prompt establishes the model's persona, constraints, and behavior. It's the most important prompt in any application.
+
+<CodeBlock language="python" title="system_prompt_design.py" client:load>
+{`from openai import OpenAI
+
+client = OpenAI()
+
+# A well-structured system prompt for a customer support bot
+system_prompt = """You are a helpful customer support agent for TechCorp, a SaaS company.
+
+## Your Behavior
+- Be concise and professional
+- Always acknowledge the customer's frustration before solving
+- If you don't know something, say so — never make up information
+- Escalate to human support for: refunds > $100, account deletion, legal issues
+
+## Response Format
+1. Acknowledge the issue
+2. Provide solution or next steps
+3. Ask if there's anything else you can help with
+
+## Constraints
+- Never share internal pricing or roadmap details
+- Never provide legal advice
+- Always verify account ownership before making changes
+- Keep responses under 150 words"""
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "I've been waiting 3 days for a response to my support ticket and I'm furious!"}
+    ],
+    temperature=0.3
+)
+print(response.choices[0].message.content)
+`}
+</CodeBlock>
+
+## Hands-On Project: Prompt Library
+
+Build a structured prompt library for common tasks:
+
+1. **Setup**: Create a Python project with a `prompts/` directory
+2. **Classification prompt**: Build a multi-label classifier for news articles
+3. **Extraction prompt**: Extract structured data from unstructured emails
+4. **Generation prompt**: Create product descriptions from specifications
+5. **Evaluation**: Test each prompt against 10+ examples and measure accuracy
+
+<Callout type="important" title="Version Your Prompts" client:load>
+  Treat prompts like code — version them, test them, and track performance. A prompt that works today may break with a model update. Build evaluation sets for every production prompt.
+</Callout>
+
+## Key Resources
+
+- [OpenAI Prompt Engineering Guide](https://platform.openai.com/docs/guides/prompt-engineering) — Official best practices
+- [Anthropic Prompt Engineering](https://docs.anthropic.com/claude/docs/prompt-engineering) — Claude-specific techniques
+- [DAIR.AI Prompt Engineering Guide](https://www.promptingguide.ai/) — Comprehensive community resource
+- [DeepLearning.AI ChatGPT Prompt Engineering](https://www.deeplearning.ai/short-courses/chatgpt-prompt-engineering-for-developers/) — Free short course
+
+## Summary
+
+- **Zero-shot** works for simple, well-defined tasks — be specific and structured
+- **Few-shot** dramatically improves reliability by showing examples
+- **JSON mode** guarantees valid structured output for production pipelines
+- **Temperature** controls creativity vs determinism — match it to your use case
+- **System prompts** define behavior, constraints, and persona for your application
+- Always **test and version** your prompts like production code
+
+---
+
+## Next Steps
+
+Next, you'll explore **advanced prompting techniques** — Chain-of-Thought reasoning, function calling, and building streaming applications that interact with external tools.

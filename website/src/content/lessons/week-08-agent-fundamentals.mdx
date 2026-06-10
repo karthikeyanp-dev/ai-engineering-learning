@@ -1,0 +1,299 @@
+---
+title: "Agent Fundamentals: ReAct, LangGraph & The Agent Loop"
+description: "Learn agent architectures (ReAct, Plan-and-Execute, Reflexion), LangGraph fundamentals, and build your first autonomous AI agent"
+phase: 3
+week: 8
+objectives:
+  - "Understand agent architectures: ReAct, Plan-and-Execute, Reflexion"
+  - "Master LangGraph fundamentals: nodes, edges, state, conditional routing"
+  - "Implement the agent loop: reason → plan → act → observe"
+  - "Build a working LangGraph agent with 3+ tools"
+estimatedTime: "12-14 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=F8NKVhkZZWI"
+order: 8
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+AI agents are systems that can autonomously reason about tasks, make decisions, and take actions in the world. Unlike simple prompt-response patterns, agents operate in **loops** — observing results, updating their understanding, and deciding next steps until a goal is achieved.
+
+This is where AI engineering gets truly powerful. An agent can research topics, write code, query databases, send emails, and compose results — all from a single high-level instruction. But this power comes with complexity: agents can fail in unpredictable ways, get stuck in loops, or take unintended actions.
+
+In this lesson, you'll learn the core architectures that make agents work, and build your first production-quality agent using LangGraph — the leading framework for stateful, multi-step AI workflows.
+
+<Callout type="tip" title="Agents vs Chains" client:load>
+  A chain follows a fixed path: step 1 → step 2 → step 3. An agent decides its own path dynamically based on observations. Use chains when the workflow is predictable; use agents when the path depends on intermediate results.
+</Callout>
+
+## Recommended Video
+
+DeepLearning.AI's course on AI Agents with LangGraph covers the essential patterns:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=F8NKVhkZZWI" title="AI Agents in LangGraph — DeepLearning.AI" client:load />
+
+## Agent Architectures
+
+### ReAct (Reasoning + Acting)
+
+ReAct interleaves thinking with tool use in a loop:
+
+```
+Thought: I need to find the current price of AAPL stock
+Action: search_stock("AAPL")
+Observation: AAPL is trading at $178.52
+Thought: Now I need to calculate the portfolio value
+Action: calculate("100 * 178.52")
+Observation: 17852.0
+Thought: I have the answer
+Final Answer: Your 100 shares of AAPL are worth $17,852.00
+```
+
+### Plan-and-Execute
+
+Creates a plan first, then executes steps sequentially:
+1. **Planner** generates a list of steps
+2. **Executor** completes each step
+3. **Re-planner** adjusts the plan based on results
+
+### Reflexion
+
+Adds self-reflection after each action:
+1. Execute an action
+2. Evaluate the result
+3. Reflect on what could be improved
+4. Retry with improved approach
+
+<Callout type="info" title="Which Architecture to Use?" client:load>
+  - **ReAct**: Best for simple tool-use tasks (2-5 steps). Most common.
+  - **Plan-and-Execute**: Better for complex tasks requiring 5+ steps with dependencies.
+  - **Reflexion**: Best when quality matters more than speed and retries are acceptable.
+</Callout>
+
+## LangGraph Fundamentals
+
+LangGraph models agents as **graphs** with nodes (functions), edges (transitions), and state (shared data):
+
+<CodeBlock language="python" title="langgraph_basics.py" client:load>
+{`from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage
+from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+
+# 1. Define State — what data flows through the graph
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+# 2. Define Nodes — functions that process state
+def call_model(state: AgentState):
+    """LLM decides what to do next."""
+    model = ChatOpenAI(model="gpt-4o-mini")
+    response = model.invoke(state["messages"])
+    return {"messages": [response]}
+
+def should_continue(state: AgentState):
+    """Conditional edge: continue with tools or end?"""
+    last_message = state["messages"][-1]
+    if last_message.tool_calls:
+        return "tools"
+    return END
+
+# 3. Build the Graph
+graph = StateGraph(AgentState)
+
+# Add nodes
+graph.add_node("agent", call_model)
+graph.add_node("tools", ToolNode(tools=[]))  # Tools defined separately
+
+# Add edges
+graph.add_edge(START, "agent")
+graph.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
+graph.add_edge("tools", "agent")  # After tool execution, go back to agent
+
+# Compile
+app = graph.compile()
+`}
+</CodeBlock>
+
+### Building a Complete ReAct Agent
+
+<CodeBlock language="python" title="react_agent_langgraph.py" client:load>
+{`from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage
+from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+import requests
+import math
+
+# Define tools
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a mathematical expression. Example: '2 + 2' or 'math.sqrt(16)'"""
+    try:
+        result = eval(expression, {"math": math, "__builtins__": {}})
+        return str(result)
+    except Exception as e:
+        return f"Error: {e}"
+
+@tool
+def search_web(query: str) -> str:
+    """Search the web for current information about a topic."""
+    # Simulated search — in production use Tavily, Serper, etc.
+    return f"Search results for '{query}': [Simulated results would appear here]"
+
+@tool
+def get_weather(city: str) -> str:
+    """Get current weather for a city."""
+    # Simulated — use real weather API in production
+    return f"Weather in {city}: 72°F, partly cloudy, humidity 45%"
+
+tools = [calculator, search_web, get_weather]
+
+# Build the agent
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+model = ChatOpenAI(model="gpt-4o-mini").bind_tools(tools)
+
+def agent_node(state: AgentState):
+    response = model.invoke(state["messages"])
+    return {"messages": [response]}
+
+def should_continue(state: AgentState):
+    last_message = state["messages"][-1]
+    if last_message.tool_calls:
+        return "tools"
+    return END
+
+# Construct graph
+graph = StateGraph(AgentState)
+graph.add_node("agent", agent_node)
+graph.add_node("tools", ToolNode(tools))
+graph.add_edge(START, "agent")
+graph.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
+graph.add_edge("tools", "agent")
+
+agent = graph.compile()
+
+# Run the agent
+result = agent.invoke({
+    "messages": [HumanMessage(content="What's the weather in Tokyo and what's the square root of the temperature in Fahrenheit?")]
+})
+
+for message in result["messages"]:
+    print(f"{message.type}: {message.content[:200] if message.content else '[tool call]'}")
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Agent Safety" client:load>
+  Agents can take unexpected actions. Always: (1) limit the number of iterations (max 10-15 steps), (2) restrict tool access to what's needed, (3) log every action for debugging, (4) add human approval for destructive actions. Never give agents unrestricted access to production systems.
+</Callout>
+
+## The Agent Loop in Detail
+
+Every agent follows this core loop:
+
+1. **Observe**: Read the current state (messages, tool results, context)
+2. **Reason**: The LLM thinks about what to do next
+3. **Decide**: Choose an action (call a tool, ask for clarification, or give final answer)
+4. **Act**: Execute the chosen action
+5. **Update**: Add the result to state and loop back to Observe
+
+The key insight: the LLM acts as the **controller**, deciding at each step whether to continue acting or return a final answer.
+
+<CodeBlock language="python" title="agent_loop_from_scratch.py" client:load>
+{`from openai import OpenAI
+import json
+
+client = OpenAI()
+
+# Minimal agent loop without frameworks
+def run_agent(question: str, tools: dict, max_steps: int = 10):
+    """A minimal ReAct agent loop from scratch."""
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant with access to tools. Use them when needed to answer questions accurately."},
+        {"role": "user", "content": question}
+    ]
+    
+    tool_definitions = [
+        {"type": "function", "function": {"name": name, "description": fn.__doc__, "parameters": fn.schema}}
+        for name, fn in tools.items()
+    ]
+    
+    for step in range(max_steps):
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            tools=tool_definitions if tool_definitions else None,
+        )
+        
+        message = response.choices[0].message
+        messages.append(message)
+        
+        # If no tool calls, we're done
+        if not message.tool_calls:
+            return message.content
+        
+        # Execute each tool call
+        for tool_call in message.tool_calls:
+            fn_name = tool_call.function.name
+            fn_args = json.loads(tool_call.function.arguments)
+            
+            # Execute the tool
+            result = tools[fn_name](**fn_args)
+            
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": str(result)
+            })
+            
+            print(f"  Step {step+1}: {fn_name}({fn_args}) -> {result}")
+    
+    return "Max steps reached without final answer"
+`}
+</CodeBlock>
+
+## Hands-On Project: Research Agent
+
+Build a research agent that can answer complex questions:
+
+1. **Define 3+ tools**: web search, calculator, Wikipedia lookup
+2. **Build with LangGraph**: Implement the full ReAct loop
+3. **Add state tracking**: Log every thought, action, and observation
+4. **Set safety limits**: Max iterations, timeout, error handling
+5. **Test with complex queries**: "What's the GDP per capita of the 3 largest EU countries?"
+
+<Callout type="important" title="Debugging Agents" client:load>
+  Agent debugging is hard because execution paths are non-deterministic. Always: (1) print/log the full message history, (2) use LangSmith for trace visualization, (3) test with deterministic inputs first, (4) add assertions at each step.
+</Callout>
+
+## Key Resources
+
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/) — Official framework docs
+- [ReAct Paper](https://arxiv.org/abs/2210.03629) — Original ReAct research
+- [Reflexion Paper](https://arxiv.org/abs/2303.11366) — Self-reflecting agents
+- [LangSmith](https://smith.langchain.com/) — Agent tracing and debugging platform
+
+## Summary
+
+- **Agents** operate in loops: observe → reason → act → observe, until the goal is met
+- **ReAct** is the simplest and most common architecture — interleave thinking with tool use
+- **LangGraph** models agents as stateful graphs with nodes, edges, and conditional routing
+- Always set **safety limits**: max steps, restricted tools, logged actions
+- Start with simple 2-3 tool agents before building complex multi-step systems
+
+---
+
+## Next Steps
+
+Your agent can use tools, but how do you design good tools? Next, you'll deep-dive into **tool calling** — structured definitions, error handling, and building agents that interact with APIs and databases reliably.

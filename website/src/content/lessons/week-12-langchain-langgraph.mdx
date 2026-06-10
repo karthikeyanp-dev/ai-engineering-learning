@@ -1,0 +1,231 @@
+---
+title: "LangChain & LangGraph Mastery"
+description: "Master LangChain Expression Language (LCEL), build stateful workflows with LangGraph, and implement observability with LangSmith"
+phase: 4
+week: 12
+objectives:
+  - "Build advanced chains using LangChain Expression Language (LCEL)"
+  - "Design stateful workflows with LangGraph (parallel execution, subgraphs)"
+  - "Implement observability and tracing with LangSmith"
+  - "Debug and optimize complex AI workflows"
+estimatedTime: "10-12 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=jbGchdTL7d0"
+order: 12
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+LangChain has evolved from a simple chaining library into a comprehensive framework for building production AI applications. At its core, **LangChain Expression Language (LCEL)** provides a declarative way to compose chains, while **LangGraph** extends this to stateful, multi-step workflows with cycles, branching, and parallel execution.
+
+This week, you'll move beyond basic chains and learn to build complex, production-grade workflows. You'll implement parallel execution patterns, conditional routing, and human-in-the-loop interactions — all with full observability through LangSmith.
+
+<Callout type="tip" title="Why This Matters" client:load>
+  Most production AI applications aren't simple prompt-response pairs. They involve multi-step reasoning, tool use, state management, and error handling. LangGraph gives you the control flow primitives to build these systems reliably.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=jbGchdTL7d0" title="LangGraph Tutorial - Build Stateful AI Agents" client:load />
+
+## LangChain Expression Language (LCEL)
+
+LCEL uses the pipe operator (`|`) to compose chains declaratively. Every component implements the `Runnable` interface, making them composable:
+
+| Feature | Traditional Chains | LCEL |
+|---------|-------------------|------|
+| Streaming | Limited | First-class support |
+| Async | Manual wrapping | Built-in |
+| Parallel | Manual | `RunnableParallel` |
+| Fallbacks | Custom logic | `.with_fallbacks()` |
+| Retries | Custom logic | `.with_retry()` |
+
+<CodeBlock language="python" title="lcel_advanced_chain.py" client:load>
+{`from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+
+llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+# Parallel research chain - runs multiple analyses simultaneously
+research_chain = RunnableParallel(
+    summary=ChatPromptTemplate.from_template(
+        "Summarize this topic in 2 sentences: {topic}"
+    ) | llm | StrOutputParser(),
+    key_points=ChatPromptTemplate.from_template(
+        "List 5 key points about: {topic}"
+    ) | llm | StrOutputParser(),
+    questions=ChatPromptTemplate.from_template(
+        "Generate 3 follow-up research questions about: {topic}"
+    ) | llm | StrOutputParser(),
+)
+
+# Synthesis chain that combines parallel outputs
+synthesis_prompt = ChatPromptTemplate.from_template(
+    """Based on this research, write a comprehensive brief:
+    Summary: {summary}
+    Key Points: {key_points}
+    Questions: {questions}"""
+)
+
+full_chain = research_chain | synthesis_prompt | llm | StrOutputParser()
+result = full_chain.invoke({"topic": "Retrieval Augmented Generation"})
+`}
+</CodeBlock>
+
+## LangGraph: Stateful Workflows
+
+LangGraph models your application as a **graph** where nodes are functions and edges define the flow. State is explicitly managed and passed between nodes.
+
+<Callout type="important" title="State Management" client:load>
+  Unlike LCEL chains which are stateless, LangGraph maintains a typed state object throughout execution. This enables cycles (loops), conditional branching, and persistence — critical for agent-style applications.
+</Callout>
+
+<CodeBlock language="python" title="langgraph_workflow.py" client:load>
+{`from typing import TypedDict, Annotated, Literal
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+
+# Define the state schema
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+    research_results: list[str]
+    iteration_count: int
+    final_answer: str
+
+llm = ChatOpenAI(model="gpt-4o")
+
+# Node functions
+def research_node(state: AgentState) -> dict:
+    """Perform research based on the question."""
+    messages = state["messages"]
+    response = llm.invoke([
+        SystemMessage(content="You are a researcher. Analyze the question and provide findings."),
+        *messages
+    ])
+    results = state.get("research_results", [])
+    results.append(response.content)
+    return {"research_results": results, "iteration_count": state.get("iteration_count", 0) + 1}
+
+def evaluate_node(state: AgentState) -> dict:
+    """Evaluate if we have enough research."""
+    return state
+
+def synthesize_node(state: AgentState) -> dict:
+    """Synthesize research into a final answer."""
+    research = "\\n".join(state["research_results"])
+    response = llm.invoke([
+        SystemMessage(content="Synthesize these research findings into a comprehensive answer."),
+        HumanMessage(content=research)
+    ])
+    return {"final_answer": response.content}
+
+# Conditional edge function
+def should_continue(state: AgentState) -> Literal["research", "synthesize"]:
+    if state.get("iteration_count", 0) >= 3:
+        return "synthesize"
+    if len(state.get("research_results", [])) >= 2:
+        return "synthesize"
+    return "research"
+
+# Build the graph
+workflow = StateGraph(AgentState)
+workflow.add_node("research", research_node)
+workflow.add_node("evaluate", evaluate_node)
+workflow.add_node("synthesize", synthesize_node)
+
+workflow.set_entry_point("research")
+workflow.add_edge("research", "evaluate")
+workflow.add_conditional_edges("evaluate", should_continue)
+workflow.add_edge("synthesize", END)
+
+app = workflow.compile()
+
+# Run the workflow
+result = app.invoke({
+    "messages": [HumanMessage(content="What are the best practices for RAG systems?")],
+    "research_results": [],
+    "iteration_count": 0,
+    "final_answer": ""
+})
+print(result["final_answer"])
+`}
+</CodeBlock>
+
+## LangSmith for Observability
+
+LangSmith provides tracing, evaluation, and monitoring for your LLM applications. Every chain invocation is automatically traced when configured.
+
+<CodeBlock language="python" title="langsmith_integration.py" client:load>
+{`import os
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_API_KEY"] = "your-langsmith-api-key"
+os.environ["LANGCHAIN_PROJECT"] = "rag-production"
+
+from langsmith import Client
+from langchain_openai import ChatOpenAI
+
+client = Client()
+
+# All LangChain calls are now automatically traced
+# You can also add custom metadata
+llm = ChatOpenAI(model="gpt-4o").with_config(
+    tags=["production", "rag-pipeline"],
+    metadata={"user_id": "user_123", "session_id": "abc"}
+)
+
+# Create evaluation datasets in LangSmith
+dataset = client.create_dataset("rag-eval-set")
+client.create_examples(
+    inputs=[{"question": "What is RAG?"}],
+    outputs=[{"answer": "RAG combines retrieval with generation..."}],
+    dataset_id=dataset.id
+)
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Tracing in Production" client:load>
+  Always set `LANGCHAIN_TRACING_V2=true` in production but be mindful of costs. Use sampling (trace only a percentage of requests) for high-volume applications, and always redact PII from traces.
+</Callout>
+
+## Hands-on Project: Multi-Agent Research System
+
+Build a LangGraph workflow that:
+1. Takes a research question as input
+2. Spawns parallel research agents (web search, document analysis, fact-checking)
+3. Aggregates results with conflict resolution
+4. Produces a cited, structured report
+5. Includes human-in-the-loop approval before final output
+
+**Requirements:**
+- Use `RunnableParallel` for concurrent agent execution
+- Implement at least one cycle (iterative refinement)
+- Add LangSmith tracing with custom metadata
+- Handle errors gracefully with fallback nodes
+
+## Key Resources
+
+- [LangChain Documentation](https://python.langchain.com/docs/) — Official docs with LCEL reference
+- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/) — Graph-based workflow framework
+- [LangSmith Platform](https://smith.langchain.com/) — Observability and evaluation
+- [LangGraph Examples](https://github.com/langchain-ai/langgraph/tree/main/examples) — Production patterns
+
+## Summary
+
+1. LCEL provides declarative chain composition with streaming, parallelism, and fallbacks built-in
+2. LangGraph enables stateful workflows with cycles, branching, and human-in-the-loop
+3. LangSmith gives full observability into every step of your AI pipeline
+4. Production systems need explicit state management, error handling, and tracing
+
+---
+
+## Next Steps
+
+Next week, you'll explore **alternative frameworks** — LlamaIndex, Haystack, and others — learning when each tool is the right choice for your specific use case.

@@ -1,0 +1,342 @@
+---
+title: "Monitoring, Observability & Safety"
+description: "Implement comprehensive monitoring for LLM applications, set up observability with Langfuse, and build guardrails for safety"
+phase: 6
+week: 20
+objectives:
+  - "Monitor LLM applications (latency, cost, quality metrics)"
+  - "Implement observability with Langfuse/LangSmith"
+  - "Build guardrails for input validation, output filtering, and PII redaction"
+  - "Set up alerting for quality degradation"
+estimatedTime: "10-12 hours"
+difficulty: "advanced"
+videoUrl: "https://www.youtube.com/watch?v=Yg1J9CGhQHY"
+order: 20
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+A deployed AI application without monitoring is a liability. LLM applications have unique observability challenges: non-deterministic outputs, gradual quality degradation, cost spiraling from prompt changes, and safety risks from adversarial inputs. You need specialized tooling that goes beyond traditional APM.
+
+This week, you'll implement a comprehensive monitoring stack: **Langfuse** for LLM-specific observability (traces, costs, quality scoring), **guardrails** for preventing harmful inputs/outputs, and **alerting** that catches issues before users do. By the end, you'll have full visibility into every aspect of your AI application's behavior.
+
+<Callout type="important" title="The Three Pillars of LLM Observability" client:load>
+  1. **Latency & Performance** — Time to first token, total response time, throughput
+  2. **Cost & Usage** — Token consumption, model costs, per-user spending
+  3. **Quality & Safety** — Output relevance, hallucination rate, safety violations
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=Yg1J9CGhQHY" title="LLM Observability - Monitoring AI Applications in Production" client:load />
+
+## Key Metrics for LLM Applications
+
+| Category | Metric | Target | Alert Threshold |
+|----------|--------|--------|-----------------|
+| **Latency** | Time to first token | < 500ms | > 2s |
+| **Latency** | Total response time | < 3s | > 10s |
+| **Cost** | Cost per request | < $0.01 | > $0.05 |
+| **Cost** | Daily spend | Budget | 80% of budget |
+| **Quality** | User thumbs-up rate | > 80% | < 60% |
+| **Quality** | Hallucination rate | < 5% | > 15% |
+| **Safety** | Guardrail triggers | < 2% | > 5% |
+| **Reliability** | Error rate | < 1% | > 5% |
+| **Reliability** | Timeout rate | < 0.5% | > 2% |
+
+## Langfuse Integration
+
+<CodeBlock language="python" title="langfuse_observability.py" client:load>
+{`from langfuse import Langfuse
+from langfuse.decorators import observe, langfuse_context
+from openai import OpenAI
+import time
+
+# Initialize Langfuse
+langfuse = Langfuse(
+    public_key="pk-...",
+    secret_key="sk-...",
+    host="https://cloud.langfuse.com"
+)
+
+client = OpenAI()
+
+@observe(as_type="generation")
+def generate_response(user_message: str, session_id: str) -> str:
+    """Generate a response with full observability."""
+    
+    # Add metadata to the trace
+    langfuse_context.update_current_observation(
+        metadata={"session_id": session_id},
+        tags=["production", "chat"]
+    )
+    
+    start = time.time()
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": user_message}
+        ],
+        temperature=0.7,
+    )
+    latency = time.time() - start
+    
+    # Log custom metrics
+    langfuse_context.update_current_observation(
+        usage={
+            "input": response.usage.prompt_tokens,
+            "output": response.usage.completion_tokens,
+            "total": response.usage.total_tokens,
+        },
+        metadata={
+            "latency_ms": latency * 1000,
+            "model": "gpt-4o-mini",
+        }
+    )
+    
+    return response.choices[0].message.content
+
+@observe()
+def rag_pipeline(query: str, session_id: str) -> str:
+    """Full RAG pipeline with tracing."""
+    
+    # Span 1: Retrieval
+    langfuse_context.update_current_observation(name="retrieval")
+    docs = retrieve_documents(query)
+    
+    # Span 2: Generation
+    context = "\\n".join([d.content for d in docs])
+    prompt = f"Based on this context:\\n{context}\\n\\nAnswer: {query}"
+    
+    response = generate_response(prompt, session_id)
+    
+    # Score the trace (can also be done async via user feedback)
+    langfuse_context.score_current_trace(
+        name="relevance",
+        value=0.85,  # From automated evaluation
+        comment="High relevance based on context overlap"
+    )
+    
+    return response
+`}
+</CodeBlock>
+
+<Callout type="tip" title="Async Scoring" client:load>
+  Don't block your API response to score quality. Collect user feedback (thumbs up/down, corrections) and score traces asynchronously. Langfuse supports updating traces after the fact via trace IDs.
+</Callout>
+
+## Building Guardrails
+
+<CodeBlock language="python" title="guardrails_system.py" client:load>
+{`import re
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional
+
+class GuardrailAction(Enum):
+    ALLOW = "allow"
+    BLOCK = "block"
+    MODIFY = "modify"
+    FLAG = "flag"
+
+@dataclass
+class GuardrailResult:
+    action: GuardrailAction
+    reason: Optional[str] = None
+    modified_content: Optional[str] = None
+
+class InputGuardrails:
+    """Validate and sanitize user inputs."""
+    
+    # Prompt injection patterns
+    INJECTION_PATTERNS = [
+        r"ignore (all )?(previous|above) instructions",
+        r"you are now",
+        r"new system prompt",
+        r"forget everything",
+        r"disregard (your|all) (instructions|rules)",
+    ]
+    
+    # PII patterns
+    PII_PATTERNS = {
+        "ssn": r"\b\d{3}-\d{2}-\d{4}\b",
+        "credit_card": r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b",
+        "email": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+        "phone": r"\b(\+1)?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b",
+    }
+    
+    def check_injection(self, text: str) -> GuardrailResult:
+        """Detect prompt injection attempts."""
+        text_lower = text.lower()
+        for pattern in self.INJECTION_PATTERNS:
+            if re.search(pattern, text_lower):
+                return GuardrailResult(
+                    action=GuardrailAction.BLOCK,
+                    reason=f"Potential prompt injection detected"
+                )
+        return GuardrailResult(action=GuardrailAction.ALLOW)
+    
+    def redact_pii(self, text: str) -> GuardrailResult:
+        """Redact PII from input before sending to LLM."""
+        modified = text
+        found_pii = []
+        
+        for pii_type, pattern in self.PII_PATTERNS.items():
+            matches = re.findall(pattern, modified)
+            if matches:
+                found_pii.append(pii_type)
+                modified = re.sub(pattern, f"[REDACTED_{pii_type.upper()}]", modified)
+        
+        if found_pii:
+            return GuardrailResult(
+                action=GuardrailAction.MODIFY,
+                reason=f"PII redacted: {', '.join(found_pii)}",
+                modified_content=modified
+            )
+        return GuardrailResult(action=GuardrailAction.ALLOW)
+
+class OutputGuardrails:
+    """Validate and filter model outputs."""
+    
+    BLOCKED_CONTENT = [
+        r"(how to|instructions for) (make|build|create) (a )?(bomb|weapon|explosive)",
+        r"(suicide|self-harm) (method|instruction|guide)",
+    ]
+    
+    def check_harmful_content(self, text: str) -> GuardrailResult:
+        """Check for harmful content in model output."""
+        text_lower = text.lower()
+        for pattern in self.BLOCKED_CONTENT:
+            if re.search(pattern, text_lower):
+                return GuardrailResult(
+                    action=GuardrailAction.BLOCK,
+                    reason="Harmful content detected in output"
+                )
+        return GuardrailResult(action=GuardrailAction.ALLOW)
+    
+    def check_hallucination_signals(self, text: str) -> GuardrailResult:
+        """Flag potential hallucinations."""
+        hallucination_signals = [
+            "as an AI, I don't have access to real-time",
+            "I cannot verify this information",
+            "I'm not sure if this is accurate",
+        ]
+        for signal in hallucination_signals:
+            if signal.lower() in text.lower():
+                return GuardrailResult(
+                    action=GuardrailAction.FLAG,
+                    reason="Potential hallucination signal detected"
+                )
+        return GuardrailResult(action=GuardrailAction.ALLOW)
+`}
+</CodeBlock>
+
+## Monitoring Dashboard Setup
+
+<CodeBlock language="python" title="metrics_endpoint.py" client:load>
+{`from prometheus_client import Counter, Histogram, Gauge, generate_latest
+from fastapi import FastAPI, Response
+import time
+
+# Define metrics
+REQUEST_COUNT = Counter(
+    "llm_requests_total",
+    "Total LLM requests",
+    ["model", "status", "endpoint"]
+)
+REQUEST_LATENCY = Histogram(
+    "llm_request_duration_seconds",
+    "Request latency in seconds",
+    ["model", "endpoint"],
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
+)
+TOKEN_USAGE = Counter(
+    "llm_tokens_total",
+    "Total tokens used",
+    ["model", "type"]  # type: input/output
+)
+COST_TOTAL = Counter(
+    "llm_cost_dollars_total",
+    "Total cost in dollars",
+    ["model"]
+)
+GUARDRAIL_TRIGGERS = Counter(
+    "guardrail_triggers_total",
+    "Guardrail trigger count",
+    ["guardrail_type", "action"]
+)
+ACTIVE_REQUESTS = Gauge(
+    "llm_active_requests",
+    "Currently processing requests"
+)
+
+app = FastAPI()
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(
+        content=generate_latest(),
+        media_type="text/plain"
+    )
+
+# Cost calculation
+MODEL_COSTS = {
+    "gpt-4o": {"input": 2.50 / 1_000_000, "output": 10.00 / 1_000_000},
+    "gpt-4o-mini": {"input": 0.15 / 1_000_000, "output": 0.60 / 1_000_000},
+}
+
+def track_request(model: str, input_tokens: int, output_tokens: int, latency: float):
+    """Track all metrics for a request."""
+    REQUEST_COUNT.labels(model=model, status="success", endpoint="/chat").inc()
+    REQUEST_LATENCY.labels(model=model, endpoint="/chat").observe(latency)
+    TOKEN_USAGE.labels(model=model, type="input").inc(input_tokens)
+    TOKEN_USAGE.labels(model=model, type="output").inc(output_tokens)
+    
+    costs = MODEL_COSTS.get(model, MODEL_COSTS["gpt-4o-mini"])
+    cost = input_tokens * costs["input"] + output_tokens * costs["output"]
+    COST_TOTAL.labels(model=model).inc(cost)
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Alert Fatigue" client:load>
+  Be selective with alerts. Only alert on actionable conditions that require immediate human intervention. Use dashboards for informational metrics. A good rule: if you wouldn't wake someone up for it, it's a dashboard metric, not an alert.
+</Callout>
+
+## Hands-on Project: Full Observability Stack
+
+Build a complete monitoring and safety system:
+1. Integrate Langfuse for LLM tracing (all requests traced)
+2. Implement input guardrails (injection detection, PII redaction, content policy)
+3. Implement output guardrails (harmful content, hallucination detection)
+4. Add Prometheus metrics (latency, cost, tokens, errors, guardrail triggers)
+5. Create a Grafana dashboard with key metrics
+6. Set up alerts for: error rate > 5%, P95 latency > 5s, daily cost > budget
+7. Test guardrails with adversarial inputs (prompt injection attempts)
+
+## Key Resources
+
+- [Langfuse Documentation](https://langfuse.com/docs) — Open-source LLM observability
+- [Prometheus + Grafana](https://prometheus.io/docs/) — Metrics and dashboards
+- [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/) — LLM security risks
+- [NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) — NVIDIA's guardrails framework
+- [Guardrails AI](https://www.guardrailsai.com/) — Output validation framework
+
+## Summary
+
+1. LLM applications need specialized monitoring beyond traditional APM (cost, quality, safety)
+2. Langfuse provides purpose-built tracing with cost tracking and quality scoring
+3. Input guardrails prevent prompt injection and redact PII before it reaches the model
+4. Output guardrails catch harmful content and flag potential hallucinations
+5. Prometheus metrics enable alerting on latency, cost, and quality degradation
+
+---
+
+## Next Steps
+
+The final week of this phase covers **cost optimization and scaling** — reducing costs by 50%+ while handling 100+ concurrent users reliably.

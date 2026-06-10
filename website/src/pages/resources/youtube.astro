@@ -1,0 +1,14 @@
+---
+import MainLayout from '../../layouts/MainLayout.astro';
+import { YoutubeChannels } from '../../components/tools/YoutubeChannels';
+---
+
+<MainLayout title="YouTube Channels - AI Engineering Learning">
+  <div class="py-8">
+    <h1 class="text-3xl font-bold mb-2">YouTube Channels</h1>
+    <p class="text-[var(--color-text-secondary)] mb-8">
+      The best YouTube channels for learning AI Engineering, from fundamentals to advanced implementations.
+    </p>
+    <YoutubeChannels client:visible />
+  </div>
+</MainLayout>

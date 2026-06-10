@@ -1,0 +1,277 @@
+---
+title: "Advanced RAG: Re-ranking, Hybrid Search & Query Transformation"
+description: "Dramatically improve RAG quality with re-ranking strategies, hybrid search combining BM25 and semantic search, and query transformation techniques"
+phase: 2
+week: 5
+objectives:
+  - "Implement re-ranking with cross-encoders and Cohere Rerank"
+  - "Build hybrid search combining BM25 and semantic retrieval"
+  - "Apply query transformation (HyDE, multi-query, step-back prompting)"
+  - "Measure retrieval quality improvements quantitatively"
+estimatedTime: "10-12 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=PfKzmN_AEIY"
+order: 5
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+A basic RAG system retrieves documents using vector similarity alone. This works, but it has blind spots: it misses keyword-specific matches, struggles with short queries, and returns results without considering relevance ordering. Advanced RAG techniques fix these issues.
+
+In this lesson, you'll learn three powerful upgrades that can improve retrieval quality by 20-40%: **re-ranking** (scoring retrieved documents more accurately), **hybrid search** (combining keyword and semantic retrieval), and **query transformation** (reformulating queries for better retrieval).
+
+These techniques are what separate a demo RAG system from a production one. Every professional RAG pipeline uses at least one of these.
+
+<Callout type="tip" title="Diminishing Returns" client:load>
+  Re-ranking typically gives the biggest bang for the buck. Start there. Add hybrid search if your documents contain specific terminology or codes. Use query transformation for complex, multi-part questions.
+</Callout>
+
+## Recommended Video
+
+DeepLearning.AI's Advanced Retrieval course covers these patterns in depth:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=PfKzmN_AEIY" title="Advanced Retrieval for AI — DeepLearning.AI" client:load />
+
+## Re-Ranking Strategies
+
+Re-ranking adds a second pass after initial retrieval. You retrieve more documents than needed (e.g., top 20), then re-rank them with a more accurate model to select the final top 3-5.
+
+### Cross-Encoder Re-ranking
+
+Cross-encoders are more accurate than bi-encoders (used for embedding) because they process query and document together:
+
+<CodeBlock language="python" title="cross_encoder_reranking.py" client:load>
+{`from sentence_transformers import CrossEncoder
+import numpy as np
+
+# Load a cross-encoder model
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+query = "How does photosynthesis work?"
+
+# Simulated initial retrieval results (from vector DB)
+retrieved_docs = [
+    "Photosynthesis is the process by which plants convert light energy into chemical energy, storing it in glucose molecules.",
+    "The Calvin cycle is the second stage of photosynthesis, occurring in the stroma of chloroplasts.",
+    "Plants need water, sunlight, and carbon dioxide to survive and grow.",
+    "The light-dependent reactions occur in the thylakoid membranes and produce ATP and NADPH.",
+    "Chlorophyll is the green pigment in plants that absorbs light energy for photosynthesis.",
+]
+
+# Score each (query, document) pair
+pairs = [[query, doc] for doc in retrieved_docs]
+scores = reranker.predict(pairs)
+
+# Sort by relevance score
+ranked_results = sorted(zip(scores, retrieved_docs), key=lambda x: x[0], reverse=True)
+
+print("Re-ranked results:")
+for score, doc in ranked_results:
+    print(f"  [{score:.4f}] {doc[:80]}...")
+`}
+</CodeBlock>
+
+### Cohere Rerank API
+
+For production use, Cohere's Rerank API provides state-of-the-art re-ranking as a service:
+
+<CodeBlock language="python" title="cohere_rerank.py" client:load>
+{`import cohere
+
+co = cohere.Client()  # Uses COHERE_API_KEY env var
+
+query = "What are the side effects of ibuprofen?"
+
+documents = [
+    "Ibuprofen may cause stomach upset, nausea, and dizziness in some patients.",
+    "Aspirin is another common NSAID used for pain relief.",
+    "Long-term use of ibuprofen can increase risk of heart attack and stroke.",
+    "Take ibuprofen with food to reduce gastrointestinal side effects.",
+    "The recommended dose of ibuprofen for adults is 200-400mg every 4-6 hours.",
+]
+
+# Rerank documents
+results = co.rerank(
+    query=query,
+    documents=documents,
+    top_n=3,
+    model="rerank-english-v3.0"
+)
+
+print("Top 3 re-ranked results:")
+for result in results.results:
+    print(f"  [{result.relevance_score:.4f}] {documents[result.index][:80]}...")
+`}
+</CodeBlock>
+
+<Callout type="info" title="When to Use Re-ranking" client:load>
+  Re-ranking adds 100-500ms latency per query. It's worth it when: retrieval precision matters more than speed, your initial retrieval returns many semi-relevant results, or you're dealing with nuanced queries where embedding similarity alone isn't sufficient.
+</Callout>
+
+## Hybrid Search: BM25 + Semantic
+
+Hybrid search combines traditional keyword search (BM25) with semantic vector search. This catches both exact term matches AND conceptual matches.
+
+<CodeBlock language="python" title="hybrid_search.py" client:load>
+{`from rank_bm25 import BM25Okapi
+import chromadb
+from chromadb.utils import embedding_functions
+import numpy as np
+
+class HybridSearcher:
+    """Combines BM25 keyword search with semantic vector search."""
+    
+    def __init__(self, documents: list[str]):
+        self.documents = documents
+        
+        # BM25 setup
+        tokenized_docs = [doc.lower().split() for doc in documents]
+        self.bm25 = BM25Okapi(tokenized_docs)
+        
+        # Vector DB setup
+        openai_ef = embedding_functions.OpenAIEmbeddingFunction(
+            model_name="text-embedding-3-small"
+        )
+        self.client = chromadb.Client()
+        self.collection = self.client.create_collection(
+            "hybrid_docs", embedding_function=openai_ef
+        )
+        self.collection.add(
+            documents=documents,
+            ids=[f"doc_{i}" for i in range(len(documents))]
+        )
+    
+    def search(self, query: str, k: int = 5, alpha: float = 0.5) -> list[tuple[str, float]]:
+        """
+        Hybrid search with configurable weighting.
+        alpha=1.0 is pure semantic, alpha=0.0 is pure BM25.
+        """
+        # BM25 scores
+        tokenized_query = query.lower().split()
+        bm25_scores = self.bm25.get_scores(tokenized_query)
+        bm25_norm = bm25_scores / (bm25_scores.max() + 1e-8)
+        
+        # Semantic scores
+        results = self.collection.query(query_texts=[query], n_results=len(self.documents))
+        semantic_scores = np.zeros(len(self.documents))
+        for idx, doc_id in enumerate(results["ids"][0]):
+            doc_idx = int(doc_id.split("_")[1])
+            # Convert distance to similarity
+            semantic_scores[doc_idx] = 1.0 - (results["distances"][0][idx] if results["distances"] else 0)
+        
+        # Combine scores
+        hybrid_scores = alpha * semantic_scores + (1 - alpha) * bm25_norm
+        
+        # Return top-k
+        top_indices = np.argsort(hybrid_scores)[::-1][:k]
+        return [(self.documents[i], hybrid_scores[i]) for i in top_indices]
+
+# Usage
+docs = ["Python is a programming language", "Monty Python is a comedy group", ...]
+searcher = HybridSearcher(docs)
+results = searcher.search("python programming tutorial", alpha=0.6)
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Tuning Alpha" client:load>
+  The `alpha` parameter balances semantic vs keyword search. Start with 0.5-0.7 (slightly favoring semantic). For technical docs with specific terminology, try 0.3-0.5 to weight keywords more heavily. Always evaluate on real queries.
+</Callout>
+
+## Query Transformation
+
+Sometimes the user's query isn't ideal for retrieval. Query transformation reformulates it for better results.
+
+### HyDE (Hypothetical Document Embeddings)
+
+Generate a hypothetical answer, then use *that* for retrieval (often more similar to actual documents than the question):
+
+<CodeBlock language="python" title="query_transformation.py" client:load>
+{`from openai import OpenAI
+
+client = OpenAI()
+
+def hyde_transform(query: str) -> str:
+    """Generate a hypothetical document that would answer the query."""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Write a short passage that would be a perfect answer to the given question. Write as if it's from a textbook."},
+            {"role": "user", "content": query}
+        ],
+        temperature=0.7,
+        max_tokens=200
+    )
+    return response.choices[0].message.content
+
+def multi_query_transform(query: str) -> list[str]:
+    """Generate multiple query variations for broader retrieval."""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Generate 3 different versions of the given question that capture different aspects or phrasings. Return one per line."},
+            {"role": "user", "content": query}
+        ],
+        temperature=0.8
+    )
+    return response.choices[0].message.content.strip().split("\\n")
+
+def step_back_transform(query: str) -> str:
+    """Generate a more general 'step-back' question for better context."""
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Given a specific question, generate a more general 'step-back' question that would provide useful background context."},
+            {"role": "user", "content": query}
+        ],
+        temperature=0.3
+    )
+    return response.choices[0].message.content
+
+# Example
+query = "Why does my Python async code deadlock when using sqlite3?"
+
+print(f"Original: {query}")
+print(f"\\nHyDE: {hyde_transform(query)}")
+print(f"\\nMulti-query: {multi_query_transform(query)}")
+print(f"\\nStep-back: {step_back_transform(query)}")
+`}
+</CodeBlock>
+
+## Hands-On Project: Advanced RAG Pipeline
+
+Upgrade your Week 4 RAG system with advanced retrieval:
+
+1. **Add re-ranking**: Retrieve top-20, re-rank to top-5 using a cross-encoder
+2. **Implement hybrid search**: Add BM25 alongside vector search
+3. **Add query transformation**: Implement HyDE for complex questions
+4. **A/B test**: Compare retrieval quality (precision@5) between basic and advanced RAG
+5. **Measure latency**: Profile each stage and document tradeoffs
+
+<Callout type="important" title="Measure Before Optimizing" client:load>
+  Create a test set of 20+ question-answer pairs before adding advanced techniques. Measure retrieval precision and answer quality with the basic system first, then demonstrate improvement quantitatively.
+</Callout>
+
+## Key Resources
+
+- [Cohere Rerank Documentation](https://docs.cohere.com/docs/reranking) — Production re-ranking API
+- [HyDE Paper](https://arxiv.org/abs/2212.10496) — Hypothetical Document Embeddings
+- [BM25 Algorithm Explained](https://www.elastic.co/blog/practical-bm25-part-2-the-bm25-algorithm-and-its-variables) — Keyword search fundamentals
+- [LangChain Multi-Query Retriever](https://python.langchain.com/docs/how_to/MultiQueryRetriever/) — Implementation guide
+
+## Summary
+
+- **Re-ranking** with cross-encoders provides the single biggest quality improvement for RAG
+- **Hybrid search** (BM25 + semantic) catches both keyword matches and conceptual matches
+- **Query transformation** (HyDE, multi-query, step-back) reformulates queries for better retrieval
+- Start with re-ranking, add hybrid search for technical content, use query transformation for complex questions
+- Always **measure improvement** against a baseline test set
+
+---
+
+## Next Steps
+
+Now that your retrieval is solid, it's time to make your RAG **production-ready** — with evaluation metrics, semantic chunking, caching, and access control patterns.

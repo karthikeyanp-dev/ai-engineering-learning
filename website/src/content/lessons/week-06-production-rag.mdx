@@ -1,0 +1,288 @@
+---
+title: "Production RAG: Evaluation, Semantic Chunking & Scaling"
+description: "Make RAG production-ready with RAGAS evaluation, semantic chunking strategies, caching, metadata filtering, and access control patterns"
+phase: 2
+week: 6
+objectives:
+  - "Evaluate RAG quality with RAGAS (faithfulness, relevancy, context precision)"
+  - "Implement semantic chunking and parent-child retrieval"
+  - "Build production patterns: caching, metadata filtering, access control"
+  - "Establish quantitative evaluation metrics for your pipeline"
+estimatedTime: "10-12 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=eSHv2cFtFMQ"
+order: 6
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+You've built a RAG system that works in demos. But how do you know if it's *actually good*? And how do you make it reliable enough for production — handling thousands of users, diverse documents, and edge cases?
+
+This lesson covers the gap between prototype and production. You'll learn to **measure** RAG quality with standardized metrics, implement **smarter chunking** that respects document structure, and add **production patterns** like caching and access control that real systems need.
+
+Without evaluation metrics, you're flying blind. Without production patterns, you're building a demo. This lesson gives you both.
+
+<Callout type="tip" title="The RAG Quality Triangle" client:load>
+  RAG quality depends on three factors: **Retrieval quality** (are you finding the right chunks?), **Context quality** (are chunks informative enough?), and **Generation quality** (is the LLM using context correctly?). Evaluate all three independently.
+</Callout>
+
+## Recommended Video
+
+Learn about RAG evaluation strategies and production patterns:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=eSHv2cFtFMQ" title="RAG Evaluation and Production Patterns" client:load />
+
+## RAG Evaluation with RAGAS
+
+RAGAS (Retrieval Augmented Generation Assessment) is the standard framework for evaluating RAG pipelines. It provides metrics that don't require human labels:
+
+<CodeBlock language="python" title="ragas_evaluation.py" client:load>
+{`from ragas import evaluate
+from ragas.metrics import (
+    faithfulness,
+    answer_relevancy,
+    context_precision,
+    context_recall,
+)
+from datasets import Dataset
+
+# Prepare evaluation data
+eval_data = {
+    "question": [
+        "What is the capital of France?",
+        "How does photosynthesis work?",
+        "What are the benefits of exercise?",
+    ],
+    "answer": [
+        "The capital of France is Paris, located on the Seine River.",
+        "Photosynthesis converts light energy into chemical energy in plants using chlorophyll.",
+        "Exercise improves cardiovascular health, mental well-being, and bone density.",
+    ],
+    "contexts": [
+        ["Paris is the capital city of France, situated on the Seine River."],
+        ["Photosynthesis is the process by which green plants use sunlight to synthesize nutrients from CO2 and water."],
+        ["Regular physical exercise strengthens the heart, reduces anxiety, and increases bone mineral density."],
+    ],
+    "ground_truth": [
+        "Paris is the capital of France.",
+        "Photosynthesis is the process where plants convert light into chemical energy using chlorophyll.",
+        "Exercise benefits include improved heart health, better mental health, and stronger bones.",
+    ]
+}
+
+dataset = Dataset.from_dict(eval_data)
+
+# Run evaluation
+results = evaluate(
+    dataset,
+    metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
+)
+
+print(f"Faithfulness: {results['faithfulness']:.4f}")
+print(f"Answer Relevancy: {results['answer_relevancy']:.4f}")
+print(f"Context Precision: {results['context_precision']:.4f}")
+print(f"Context Recall: {results['context_recall']:.4f}")
+`}
+</CodeBlock>
+
+### Understanding RAGAS Metrics
+
+| Metric | What it measures | Good score |
+|--------|-----------------|------------|
+| **Faithfulness** | Is the answer grounded in the context? (no hallucination) | > 0.9 |
+| **Answer Relevancy** | Does the answer address the question? | > 0.85 |
+| **Context Precision** | Are retrieved chunks relevant to the question? | > 0.8 |
+| **Context Recall** | Does the context cover the ground truth? | > 0.8 |
+
+<Callout type="warning" title="Evaluation Pitfalls" client:load>
+  RAGAS metrics use LLMs for scoring, which means they're not deterministic and can have biases. Always supplement with manual evaluation on critical queries. Build a "golden set" of 50+ question-answer pairs and review them regularly.
+</Callout>
+
+## Semantic Chunking
+
+Instead of splitting text by character count, semantic chunking splits based on *meaning boundaries* — where topics change:
+
+<CodeBlock language="python" title="semantic_chunking.py" client:load>
+{`from langchain_experimental.text_splitter import SemanticChunker
+from langchain_openai import OpenAIEmbeddings
+
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+
+# Semantic chunker splits based on embedding similarity between sentences
+semantic_chunker = SemanticChunker(
+    embeddings,
+    breakpoint_threshold_type="percentile",
+    breakpoint_threshold_amount=75,  # Split at top 25% dissimilarity
+)
+
+document = """Machine learning is a subset of artificial intelligence...
+[long document with multiple topics]..."""
+
+semantic_chunks = semantic_chunker.split_text(document)
+
+print(f"Number of semantic chunks: {len(semantic_chunks)}")
+for i, chunk in enumerate(semantic_chunks[:3]):
+    print(f"\\nChunk {i+1} ({len(chunk)} chars):")
+    print(f"  {chunk[:100]}...")
+`}
+</CodeBlock>
+
+### Parent-Child Retrieval
+
+Embed small chunks for precision, but retrieve the larger parent chunk for context:
+
+<CodeBlock language="python" title="parent_child_retrieval.py" client:load>
+{`from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+# Parent chunks: large, for context
+parent_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
+
+# Child chunks: small, for precise retrieval  
+child_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50)
+
+class ParentChildRetriever:
+    """Retrieve using small chunks, return parent chunks for context."""
+    
+    def __init__(self, documents: list[str]):
+        self.parent_chunks = parent_splitter.split_text("\\n\\n".join(documents))
+        self.child_to_parent = {}  # Maps child_id -> parent_id
+        self.child_chunks = []
+        
+        for parent_id, parent in enumerate(self.parent_chunks):
+            children = child_splitter.split_text(parent)
+            for child in children:
+                child_id = len(self.child_chunks)
+                self.child_chunks.append(child)
+                self.child_to_parent[child_id] = parent_id
+    
+    def retrieve(self, query: str, k: int = 3) -> list[str]:
+        """Search over children, return unique parents."""
+        # In practice, search child_chunks in vector DB
+        # Return the parent chunks for matched children
+        matched_parent_ids = set()
+        # ... vector search logic here ...
+        return [self.parent_chunks[pid] for pid in matched_parent_ids]
+`}
+</CodeBlock>
+
+<Callout type="info" title="Sliding Window Technique" client:load>
+  For documents where context flows across boundaries, use a sliding window approach: create overlapping chunks where each chunk includes context from the previous and next chunk. This preserves cross-boundary information while keeping chunks manageable.
+</Callout>
+
+## Production Patterns
+
+### Caching for Performance
+
+<CodeBlock language="python" title="rag_caching.py" client:load>
+{`import hashlib
+import json
+from functools import lru_cache
+import redis
+
+# Redis-based semantic cache
+class SemanticCache:
+    def __init__(self, redis_url="redis://localhost:6379", ttl=3600):
+        self.redis = redis.from_url(redis_url)
+        self.ttl = ttl
+    
+    def _get_key(self, query: str) -> str:
+        return f"rag:cache:{hashlib.md5(query.encode()).hexdigest()}"
+    
+    def get(self, query: str) -> str | None:
+        result = self.redis.get(self._get_key(query))
+        return result.decode() if result else None
+    
+    def set(self, query: str, answer: str):
+        self.redis.setex(self._get_key(query), self.ttl, answer)
+
+# Usage in RAG pipeline
+cache = SemanticCache()
+
+def cached_rag_query(question: str) -> str:
+    # Check cache first
+    cached = cache.get(question)
+    if cached:
+        return cached
+    
+    # Run full RAG pipeline
+    answer = rag_query(question)  # Your existing RAG function
+    
+    # Cache the result
+    cache.set(question, answer)
+    return answer
+`}
+</CodeBlock>
+
+### Metadata Filtering
+
+<CodeBlock language="python" title="metadata_filtering.py" client:load>
+{`# Add rich metadata during ingestion
+collection.add(
+    documents=chunks,
+    ids=ids,
+    metadatas=[
+        {
+            "source": "engineering_docs",
+            "department": "backend",
+            "date": "2024-01-15",
+            "access_level": "internal",
+            "doc_type": "api_reference"
+        }
+        for _ in chunks
+    ]
+)
+
+# Filter during retrieval — only search relevant subsets
+results = collection.query(
+    query_texts=["How to configure database connection pooling?"],
+    n_results=5,
+    where={
+        "$and": [
+            {"department": {"$eq": "backend"}},
+            {"access_level": {"$in": ["public", "internal"]}}
+        ]
+    }
+)
+`}
+</CodeBlock>
+
+## Hands-On Project: Evaluated Production RAG
+
+Build a production-quality RAG system with full evaluation:
+
+1. **Create evaluation dataset**: 30+ question-answer pairs covering your documents
+2. **Run RAGAS evaluation** on your current pipeline and record baseline scores
+3. **Implement semantic chunking**: Replace recursive splitting, re-evaluate
+4. **Add metadata filtering**: Tag documents with source, date, and topic
+5. **Add caching**: Implement query-level caching with TTL
+6. **Compare scores**: Document improvement across all RAGAS metrics
+
+<Callout type="important" title="Continuous Evaluation" client:load>
+  Set up automated evaluation that runs on every pipeline change. Track metrics over time. A RAG system that scores 0.92 faithfulness today might drop to 0.85 after a chunking change — you need to catch regressions early.
+</Callout>
+
+## Key Resources
+
+- [RAGAS Documentation](https://docs.ragas.io/) — Complete evaluation framework
+- [LangChain Semantic Chunking](https://python.langchain.com/docs/how_to/semantic-chunker/) — Implementation guide
+- [Pinecone Metadata Filtering](https://docs.pinecone.io/docs/metadata-filtering) — Production patterns
+- [RAG Evaluation Survey Paper](https://arxiv.org/abs/2404.10981) — Academic overview of RAG metrics
+
+## Summary
+
+- **RAGAS** provides standardized metrics to measure RAG quality without human labels
+- **Semantic chunking** splits on meaning boundaries, not arbitrary character counts
+- **Parent-child retrieval** combines precise search with rich context
+- **Caching** reduces latency and cost for repeated queries
+- **Metadata filtering** enables access control and scoped search
+- Always establish a **baseline** before optimizing, and track metrics continuously
+
+---
+
+## Next Steps
+
+You've built and evaluated a single-source RAG. Next, you'll tackle **multi-document RAG** — handling PDFs, web pages, code, and databases together, while choosing the right vector database for your scale.

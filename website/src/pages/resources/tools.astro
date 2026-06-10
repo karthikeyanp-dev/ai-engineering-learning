@@ -1,0 +1,42 @@
+---
+import MainLayout from '../../layouts/MainLayout.astro';
+import { VectorDBSelector } from '../../components/tools/VectorDBSelector';
+import { FrameworkComparison } from '../../components/tools/FrameworkComparison';
+import { DecisionMatrix } from '../../components/tools/DecisionMatrix';
+---
+
+<MainLayout title="Interactive Tools - AI Engineering Learning">
+  <div class="py-8 space-y-12">
+    <div>
+      <h1 class="text-3xl font-bold mb-2">Interactive Tools</h1>
+      <p class="text-[var(--color-text-secondary)]">
+        Decision-making tools to help you choose the right technologies for your AI projects.
+      </p>
+    </div>
+
+    <!-- Decision Matrix -->
+    <section>
+      <h2 class="text-2xl font-bold mb-2">RAG vs Fine-Tuning vs Prompting</h2>
+      <p class="text-sm text-[var(--color-text-muted)] mb-6">When to use each approach for your LLM application.</p>
+      <DecisionMatrix client:visible />
+    </section>
+
+    <hr class="border-white/10" />
+
+    <!-- Vector DB Selector -->
+    <section>
+      <h2 class="text-2xl font-bold mb-2">Vector Database Selector</h2>
+      <p class="text-sm text-[var(--color-text-muted)] mb-6">Compare vector databases and find the best fit for your use case.</p>
+      <VectorDBSelector client:visible />
+    </section>
+
+    <hr class="border-white/10" />
+
+    <!-- Framework Comparison -->
+    <section>
+      <h2 class="text-2xl font-bold mb-2">Framework Comparison</h2>
+      <p class="text-sm text-[var(--color-text-muted)] mb-6">Side-by-side comparison of LLM app and agent frameworks.</p>
+      <FrameworkComparison client:visible />
+    </section>
+  </div>
+</MainLayout>

@@ -1,0 +1,275 @@
+---
+title: "Hands-on Fine-Tuning"
+description: "Execute the full fine-tuning pipeline: data preparation, training with LoRA, hyperparameter tuning, and experiment tracking"
+phase: 5
+week: 16
+objectives:
+  - "Run a complete fine-tuning pipeline from data to trained model"
+  - "Tune LoRA hyperparameters (rank, alpha, target modules)"
+  - "Monitor training dynamics and detect overfitting"
+  - "Track experiments with Weights & Biases"
+estimatedTime: "10-12 hours"
+difficulty: "advanced"
+videoUrl: "https://www.youtube.com/watch?v=iOdFUJiB0Zc"
+order: 16
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Last week you set up the theory and environment. This week, you'll execute the **full fine-tuning pipeline** — from dataset curation through training, monitoring, and evaluation. You'll learn to read training curves, tune hyperparameters systematically, and detect common failure modes like overfitting and catastrophic forgetting.
+
+The key insight is that fine-tuning is an experimental process. You'll rarely get great results on your first attempt. Systematic experimentation with careful tracking is what separates successful fine-tuning from wasted GPU hours.
+
+<Callout type="important" title="Compute Budget" client:load>
+  A single QLoRA fine-tune of a 7B model on 1,000 examples takes approximately 1-2 hours on an A100 or 3-4 hours on an RTX 4090. Plan your experiments to maximize learning per GPU hour — start small and scale up.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=iOdFUJiB0Zc" title="Fine-tuning LLMs with LoRA - Complete Walkthrough" client:load />
+
+## LoRA Hyperparameter Guide
+
+| Parameter | Range | Effect | Guidance |
+|-----------|-------|--------|----------|
+| **rank (r)** | 4-128 | Model capacity | Start at 16, increase if underfitting |
+| **alpha** | 8-256 | Learning rate scaling | Usually 2x rank |
+| **target_modules** | varies | Which layers adapt | Start with q,v; add k,o,mlp for more capacity |
+| **dropout** | 0.0-0.1 | Regularization | Use 0.05 for small datasets |
+| **learning_rate** | 1e-5 to 2e-4 | Training speed | 2e-4 for QLoRA is common |
+| **epochs** | 1-5 | Training duration | 2-3 epochs typical; watch for overfitting |
+| **batch_size** | 1-8 | Gradient stability | Larger = more stable, more VRAM |
+
+## Full Training Pipeline
+
+<CodeBlock language="python" title="full_finetune_pipeline.py" client:load>
+{`import torch
+import wandb
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    TrainingArguments,
+)
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from trl import SFTTrainer
+from datasets import load_dataset
+
+# Initialize experiment tracking
+wandb.init(project="llm-finetuning", name="llama3-customer-support-r16")
+
+# Model and quantization config
+model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True,
+)
+
+# Load model
+model = AutoModelForCausalLM.from_pretrained(
+    model_name, quantization_config=bnb_config, device_map="auto"
+)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer.pad_token = tokenizer.eos_token
+tokenizer.padding_side = "right"
+
+model = prepare_model_for_kbit_training(model)
+
+# LoRA config - experiment with these values
+lora_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+)
+model = get_peft_model(model, lora_config)
+
+# Load your prepared dataset
+dataset = load_dataset("json", data_files="training_data.jsonl", split="train")
+dataset = dataset.train_test_split(test_size=0.1)
+
+# Training arguments
+training_args = TrainingArguments(
+    output_dir="./results/llama3-customer-support",
+    num_train_epochs=3,
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=4,  # Effective batch size = 16
+    warmup_ratio=0.1,
+    learning_rate=2e-4,
+    fp16=False,
+    bf16=True,
+    logging_steps=10,
+    eval_strategy="steps",
+    eval_steps=50,
+    save_strategy="steps",
+    save_steps=100,
+    save_total_limit=3,
+    load_best_model_at_end=True,
+    metric_for_best_model="eval_loss",
+    report_to="wandb",
+    gradient_checkpointing=True,
+    optim="paged_adamw_8bit",
+)
+
+# Initialize trainer
+trainer = SFTTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=dataset["train"],
+    eval_dataset=dataset["test"],
+    tokenizer=tokenizer,
+    max_seq_length=2048,
+    dataset_text_field="text",
+    packing=True,  # Pack multiple examples into one sequence
+)
+
+# Train!
+trainer.train()
+
+# Save the adapter
+trainer.save_model("./final_model")
+wandb.finish()
+`}
+</CodeBlock>
+
+## LoRA Rank Experiments
+
+<CodeBlock language="python" title="rank_experiments.py" client:load>
+{`import wandb
+from itertools import product
+
+# Systematic hyperparameter search
+experiments = [
+    {"r": 8, "alpha": 16, "modules": ["q_proj", "v_proj"]},
+    {"r": 16, "alpha": 32, "modules": ["q_proj", "v_proj"]},
+    {"r": 16, "alpha": 32, "modules": ["q_proj", "k_proj", "v_proj", "o_proj"]},
+    {"r": 32, "alpha": 64, "modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]},
+    {"r": 64, "alpha": 128, "modules": ["q_proj", "k_proj", "v_proj", "o_proj"]},
+]
+
+results = []
+for exp in experiments:
+    run_name = f"r{exp['r']}_a{exp['alpha']}_m{len(exp['modules'])}"
+    wandb.init(project="lora-rank-search", name=run_name, reinit=True)
+    
+    lora_config = LoraConfig(
+        r=exp["r"],
+        lora_alpha=exp["alpha"],
+        target_modules=exp["modules"],
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+    
+    # ... training loop (same as above) ...
+    # Log final metrics
+    wandb.log({
+        "final_eval_loss": eval_loss,
+        "trainable_params": trainable_params,
+        "training_time_minutes": training_time,
+    })
+    wandb.finish()
+    
+    results.append({
+        "config": exp,
+        "eval_loss": eval_loss,
+        "params": trainable_params,
+    })
+
+# Compare results
+for r in sorted(results, key=lambda x: x["eval_loss"]):
+    print(f"Loss: {r['eval_loss']:.4f} | Config: r={r['config']['r']}, modules={len(r['config']['modules'])}")
+`}
+</CodeBlock>
+
+<Callout type="tip" title="Reading Training Curves" client:load>
+  **Healthy training**: Train loss decreases smoothly, eval loss decreases then plateaus.
+  **Overfitting**: Train loss keeps decreasing but eval loss starts increasing — stop training or increase dropout.
+  **Underfitting**: Both losses plateau high — increase rank, add target modules, or train longer.
+</Callout>
+
+## Detecting and Preventing Overfitting
+
+| Signal | Diagnosis | Fix |
+|--------|-----------|-----|
+| Eval loss increasing | Overfitting | Early stopping, more data, increase dropout |
+| Train loss oscillating | Learning rate too high | Reduce LR, increase warmup |
+| Both losses high | Underfitting | Increase rank/modules, more epochs |
+| Repetitive outputs | Memorization | More diverse data, lower temperature |
+| Catastrophic forgetting | Too much training | Fewer epochs, lower LR, regularization |
+
+<CodeBlock language="python" title="overfitting_detection.py" client:load>
+{`from transformers import TrainerCallback
+
+class OverfittingDetector(TrainerCallback):
+    """Early stopping with overfitting detection."""
+    
+    def __init__(self, patience=5, min_delta=0.01):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.best_eval_loss = float("inf")
+        self.wait = 0
+    
+    def on_evaluate(self, args, state, control, metrics, **kwargs):
+        eval_loss = metrics.get("eval_loss", float("inf"))
+        
+        if eval_loss < self.best_eval_loss - self.min_delta:
+            self.best_eval_loss = eval_loss
+            self.wait = 0
+        else:
+            self.wait += 1
+            if self.wait >= self.patience:
+                print(f"Early stopping! No improvement for {self.patience} evaluations.")
+                control.should_training_stop = True
+
+# Add to trainer
+trainer = SFTTrainer(
+    ...,
+    callbacks=[OverfittingDetector(patience=5)],
+)
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Common Pitfall" client:load>
+  Don't train for too many epochs on small datasets. With 500 examples, 2-3 epochs is usually sufficient. Beyond that, the model memorizes training examples rather than learning generalizable patterns. Monitor eval loss closely.
+</Callout>
+
+## Hands-on Project: Domain-Specific Fine-Tuning
+
+Fine-tune a model for a specific domain task:
+1. Choose a task: code review comments, medical note summarization, legal clause extraction, or customer support classification
+2. Curate 200-500 high-quality training examples
+3. Run 3-5 experiments varying LoRA rank and target modules
+4. Track all experiments in W&B with clear naming conventions
+5. Select the best checkpoint based on eval metrics
+6. Compare the fine-tuned model against the base model on 50 held-out test examples
+7. Document: what worked, what didn't, and why
+
+## Key Resources
+
+- [SFTTrainer Documentation](https://huggingface.co/docs/trl/sft_trainer) — Supervised fine-tuning trainer
+- [Weights & Biases Guide](https://docs.wandb.ai/guides/integrations/huggingface) — HuggingFace integration
+- [LoRA Hyperparameter Guide](https://magazine.sebastianraschka.com/p/practical-tips-for-finetuning-llms) — Sebastian Raschka's practical tips
+- [Axolotl](https://github.com/OpenAccess-AI-Collective/axolotl) — Streamlined fine-tuning framework
+
+## Summary
+
+1. Fine-tuning is an experimental process — plan for 3-5 experiments minimum
+2. Start with rank 16, alpha 32, targeting q/v projections, then scale up if needed
+3. Monitor both train and eval loss; divergence indicates overfitting
+4. Use gradient checkpointing and packing to maximize training efficiency
+5. Track everything in W&B — you'll thank yourself when comparing results later
+
+---
+
+## Next Steps
+
+Next week, you'll learn to **evaluate and deploy** your fine-tuned models — including quantization for efficient inference and automated evaluation pipelines.

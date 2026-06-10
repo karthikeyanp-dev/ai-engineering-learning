@@ -1,0 +1,261 @@
+---
+title: "Model Evaluation, Quantization & Deployment"
+description: "Evaluate fine-tuned models with automated metrics and human evaluation, quantize for production, and deploy via Ollama"
+phase: 5
+week: 17
+objectives:
+  - "Build an automated evaluation suite for fine-tuned models"
+  - "Compare quantization methods (GGUF, AWQ, GPTQ)"
+  - "Deploy fine-tuned models via Ollama and vLLM"
+  - "Run head-to-head comparisons of base vs fine-tuned vs quantized"
+estimatedTime: "8-10 hours"
+difficulty: "advanced"
+videoUrl: "https://www.youtube.com/watch?v=x9tCnCE5lYQ"
+order: 17
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Training a model is only half the battle. You need rigorous **evaluation** to know if your fine-tuned model actually improves over the base model, and **quantization** to make it deployable in production without prohibitive GPU costs. This week bridges the gap from trained model to production-ready artifact.
+
+You'll build an evaluation pipeline that combines automated metrics (BLEU, ROUGE, accuracy) with LLM-as-judge evaluation, quantize your model to different formats, and deploy it for inference. By the end, you'll have a complete picture of how your model performs across quality, speed, and cost dimensions.
+
+<Callout type="tip" title="Evaluation-First Mindset" client:load>
+  Build your evaluation suite BEFORE fine-tuning. This gives you a clear baseline and lets you measure improvements scientifically rather than relying on vibes.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=x9tCnCE5lYQ" title="LLM Evaluation - Metrics, Methods & Best Practices" client:load />
+
+## Evaluation Methods Compared
+
+| Method | Speed | Cost | Reliability | Best For |
+|--------|-------|------|-------------|----------|
+| **Automated Metrics** (BLEU, ROUGE) | Fast | Free | Low-Medium | Summarization, translation |
+| **Exact Match / F1** | Fast | Free | High | Classification, extraction |
+| **LLM-as-Judge** | Medium | Moderate | Medium-High | Open-ended generation |
+| **Human Evaluation** | Slow | Expensive | Highest | Final validation |
+| **A/B Testing** | Slow | Variable | Highest | Production decisions |
+
+## Building an Evaluation Suite
+
+<CodeBlock language="python" title="evaluation_suite.py" client:load>
+{`import json
+from dataclasses import dataclass
+from openai import OpenAI
+from rouge_score import rouge_scorer
+import numpy as np
+
+@dataclass
+class EvalResult:
+    model_name: str
+    accuracy: float
+    avg_rouge_l: float
+    llm_judge_score: float
+    avg_latency_ms: float
+
+def evaluate_model(model_fn, test_set: list[dict], model_name: str) -> EvalResult:
+    """Comprehensive model evaluation."""
+    import time
+    
+    rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+    exact_matches = 0
+    rouge_scores = []
+    latencies = []
+    predictions = []
+    
+    for example in test_set:
+        start = time.time()
+        prediction = model_fn(example["input"])
+        latency = (time.time() - start) * 1000
+        
+        latencies.append(latency)
+        predictions.append(prediction)
+        
+        # Exact match (for structured outputs)
+        if prediction.strip() == example["expected"].strip():
+            exact_matches += 1
+        
+        # ROUGE-L score
+        score = rouge.score(example["expected"], prediction)
+        rouge_scores.append(score["rougeL"].fmeasure)
+    
+    # LLM-as-Judge evaluation
+    judge_score = llm_judge_evaluate(test_set, predictions)
+    
+    return EvalResult(
+        model_name=model_name,
+        accuracy=exact_matches / len(test_set),
+        avg_rouge_l=np.mean(rouge_scores),
+        llm_judge_score=judge_score,
+        avg_latency_ms=np.mean(latencies),
+    )
+
+def llm_judge_evaluate(test_set: list[dict], predictions: list[str]) -> float:
+    """Use GPT-4 as a judge to score outputs."""
+    client = OpenAI()
+    scores = []
+    
+    for example, prediction in zip(test_set, predictions):
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": f"""Rate the quality of this response on a scale of 1-5.
+
+Task: {example['input']}
+Expected: {example['expected']}
+Actual: {prediction}
+
+Score (1-5) and brief justification:"""
+            }],
+            temperature=0,
+        )
+        # Parse score from response
+        score_text = response.choices[0].message.content
+        score = int(score_text[0]) if score_text[0].isdigit() else 3
+        scores.append(score)
+    
+    return np.mean(scores)
+`}
+</CodeBlock>
+
+<Callout type="important" title="LLM-as-Judge Pitfalls" client:load>
+  LLM judges have biases: they prefer longer responses, their own writing style, and responses that start with "Certainly!". Use structured rubrics, randomize order, and validate against human judgments on a subset.
+</Callout>
+
+## Post-Training Quantization
+
+<CodeBlock language="python" title="quantization_pipeline.py" client:load>
+{`# === GGUF Quantization (for Ollama / llama.cpp) ===
+# First, convert to GGUF format using llama.cpp
+
+# 1. Merge LoRA adapter with base model
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+base_model = AutoModelForCausalLM.from_pretrained(
+    "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    torch_dtype="auto",
+    device_map="auto",
+)
+model = PeftModel.from_pretrained(base_model, "./final_model")
+merged_model = model.merge_and_unload()
+merged_model.save_pretrained("./merged_model")
+
+tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct")
+tokenizer.save_pretrained("./merged_model")
+
+# 2. Convert to GGUF (run in terminal):
+# python llama.cpp/convert_hf_to_gguf.py ./merged_model --outtype f16 --outfile model-f16.gguf
+# 
+# 3. Quantize to different levels:
+# ./llama.cpp/llama-quantize model-f16.gguf model-q8_0.gguf q8_0
+# ./llama.cpp/llama-quantize model-f16.gguf model-q4_k_m.gguf q4_k_m
+# ./llama.cpp/llama-quantize model-f16.gguf model-q4_k_s.gguf q4_k_s
+
+# === AWQ Quantization (for vLLM / GPU inference) ===
+from awq import AutoAWQForCausalLM
+
+model = AutoAWQForCausalLM.from_pretrained("./merged_model")
+tokenizer = AutoTokenizer.from_pretrained("./merged_model")
+
+quant_config = {
+    "zero_point": True,
+    "q_group_size": 128,
+    "w_bit": 4,
+    "version": "GEMM",
+}
+
+# Calibration dataset needed for AWQ
+model.quantize(tokenizer, quant_config=quant_config)
+model.save_quantized("./model-awq")
+tokenizer.save_pretrained("./model-awq")
+`}
+</CodeBlock>
+
+## Quantization Format Comparison
+
+| Format | Target Runtime | Quality | Speed | Size (7B) | Use Case |
+|--------|---------------|---------|-------|-----------|----------|
+| **GGUF Q8_0** | llama.cpp/Ollama | Near-lossless | Good | ~8 GB | Dev/testing |
+| **GGUF Q4_K_M** | llama.cpp/Ollama | Good | Fast | ~4.5 GB | Local deployment |
+| **AWQ 4-bit** | vLLM/TGI | Very Good | Fastest (GPU) | ~4.5 GB | Production GPU |
+| **GPTQ 4-bit** | vLLM/TGI | Good | Fast (GPU) | ~4.5 GB | Production GPU |
+
+## Deploying via Ollama
+
+<CodeBlock language="python" title="ollama_deployment.py" client:load>
+{`# Create an Ollama Modelfile
+modelfile_content = """
+FROM ./model-q4_k_m.gguf
+
+TEMPLATE \"\"\"<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+{{ .System }}<|eot_id|>
+<|start_header_id|>user<|end_header_id|>
+{{ .Prompt }}<|eot_id|>
+<|start_header_id|>assistant<|end_header_id|>
+\"\"\"
+
+SYSTEM "You are a customer support entity extractor. Extract structured data from support tickets."
+
+PARAMETER temperature 0.1
+PARAMETER num_ctx 4096
+PARAMETER stop "<|eot_id|>"
+"""
+
+# Save Modelfile
+with open("Modelfile", "w") as f:
+    f.write(modelfile_content)
+
+# Then run in terminal:
+# ollama create my-custom-model -f Modelfile
+# ollama run my-custom-model "Extract entities from: My order #99 is late"
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Quantization Quality Check" client:load>
+  Always run your evaluation suite on the quantized model. AWQ typically preserves more quality than GGUF Q4 for the same size. If quality drops more than 5% on your eval set, try a higher quantization level or AWQ instead of GGUF.
+</Callout>
+
+## Hands-on Project: Full Evaluation Pipeline
+
+Build a complete evaluation comparing base vs fine-tuned vs quantized:
+1. Create a test set of 50 diverse examples (held out from training)
+2. Evaluate the base model (zero-shot and few-shot)
+3. Evaluate your fine-tuned model (full precision)
+4. Quantize to GGUF Q8, Q4_K_M, and AWQ
+5. Evaluate all quantized variants
+6. Create a comparison table showing quality vs speed vs size tradeoffs
+7. Deploy the best model via Ollama with a custom Modelfile
+
+**Deliverables:**
+- Evaluation report with metrics across all model variants
+- Deployed model accessible via Ollama API
+- Decision document: which variant would you use in production and why?
+
+## Key Resources
+
+- [llama.cpp Quantization](https://github.com/ggerganov/llama.cpp) — GGUF quantization tools
+- [AutoAWQ](https://github.com/casper-hansen/AutoAWQ) — Activation-aware quantization
+- [LMSYS Chatbot Arena](https://chat.lmsys.org/) — Model comparison leaderboard
+- [Ollama Modelfile Guide](https://github.com/ollama/ollama/blob/main/docs/modelfile.md) — Custom model deployment
+
+## Summary
+
+1. Build evaluation pipelines before training to establish clear baselines
+2. Combine automated metrics, LLM-as-judge, and human evaluation for comprehensive assessment
+3. GGUF quantization enables local deployment via Ollama; AWQ is best for GPU production serving
+4. Quality loss from Q4 quantization is typically 2-5% — often acceptable for production
+5. Deploy via Ollama for simple use cases; vLLM with AWQ for high-throughput production
+
+---
+
+## Next Steps
+
+Phase 6 begins with **Containerization & API Development** — you'll Dockerize your AI applications and build production-grade APIs with FastAPI.

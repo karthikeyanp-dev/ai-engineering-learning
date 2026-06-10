@@ -1,0 +1,306 @@
+---
+title: "Containerization & API Development"
+description: "Dockerize AI applications with multi-stage builds and GPU support, build production APIs with FastAPI including streaming and rate limiting"
+phase: 6
+week: 18
+objectives:
+  - "Dockerize AI applications with multi-stage builds and GPU support"
+  - "Build production APIs with FastAPI (async, streaming, middleware)"
+  - "Implement rate limiting, error handling, and health checks"
+  - "Deploy with docker-compose for local development"
+estimatedTime: "10-12 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=h5wLuVDr0oc"
+order: 18
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Moving from notebook experiments to production requires two fundamental skills: **containerization** (making your application portable and reproducible) and **API development** (making it accessible to other services and users). Docker ensures your AI application runs identically everywhere, while FastAPI provides the high-performance, async foundation for serving predictions.
+
+This week you'll build production-grade infrastructure: multi-stage Docker builds that minimize image size, GPU-enabled containers for inference, and FastAPI endpoints with streaming responses, proper error handling, and rate limiting.
+
+<Callout type="important" title="Production Readiness" client:load>
+  A model in a notebook isn't a product. Production readiness means: reproducible builds, graceful error handling, health checks, monitoring endpoints, rate limiting, and the ability to scale horizontally. This week lays that foundation.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=h5wLuVDr0oc" title="FastAPI for ML/AI - Production Best Practices" client:load />
+
+## Multi-Stage Docker Build
+
+<CodeBlock language="python" title="Dockerfile" client:load>
+{`# Stage 1: Build dependencies
+FROM python:3.11-slim as builder
+
+WORKDIR /app
+RUN pip install --no-cache-dir pip-tools
+
+COPY requirements.in .
+RUN pip-compile requirements.in -o requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# Stage 2: Production image
+FROM python:3.11-slim as production
+
+WORKDIR /app
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    curl \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy application code
+COPY src/ ./src/
+COPY config/ ./config/
+
+# Create non-root user
+RUN useradd -m -r appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \\
+    CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+`}
+</CodeBlock>
+
+## GPU-Enabled Docker with NVIDIA
+
+<CodeBlock language="python" title="Dockerfile.gpu" client:load>
+{`FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    python3.11 python3-pip curl \\
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ ./src/
+COPY models/ ./models/
+
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+HEALTHCHECK --interval=30s --timeout=10s CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+`}
+</CodeBlock>
+
+## Docker Compose for Development
+
+<CodeBlock language="python" title="docker-compose.yml" client:load>
+{`version: "3.8"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=\${OPENAI_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=info
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src  # Hot reload in dev
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ai_app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: \${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-LINE", "pg_isready -U app"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+`}
+</CodeBlock>
+
+<Callout type="tip" title="Image Size Matters" client:load>
+  A smaller Docker image means faster deployments, lower storage costs, and reduced attack surface. Use multi-stage builds, `slim` base images, and `.dockerignore` to exclude unnecessary files. A well-optimized AI API image should be 500MB-1.5GB, not 5GB+.
+</Callout>
+
+## Production FastAPI with Streaming
+
+<CodeBlock language="python" title="fastapi_production.py" client:load>
+{`from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from contextlib import asynccontextmanager
+import asyncio
+import time
+import redis.asyncio as redis
+from openai import AsyncOpenAI
+
+# Lifespan for startup/shutdown
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: initialize connections
+    app.state.openai = AsyncOpenAI()
+    app.state.redis = redis.from_url("redis://localhost:6379")
+    yield
+    # Shutdown: cleanup
+    await app.state.redis.close()
+
+app = FastAPI(title="AI API", version="1.0.0", lifespan=lifespan)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Rate limiting middleware
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    client_ip = request.client.host
+    key = f"rate_limit:{client_ip}"
+    
+    redis_client = request.app.state.redis
+    current = await redis_client.incr(key)
+    if current == 1:
+        await redis_client.expire(key, 60)  # 60 second window
+    
+    if current > 30:  # 30 requests per minute
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    response = await call_next(request)
+    return response
+
+# Request/Response models
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    model: str = Field(default="gpt-4o-mini")
+    stream: bool = Field(default=False)
+    temperature: float = Field(default=0.7, ge=0, le=2)
+
+class ChatResponse(BaseModel):
+    response: str
+    model: str
+    usage: dict
+    latency_ms: float
+
+# Health check
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": time.time()}
+
+# Streaming endpoint
+@app.post("/chat")
+async def chat(request: ChatRequest, req: Request):
+    start = time.time()
+    client = req.app.state.openai
+    
+    if request.stream:
+        return StreamingResponse(
+            stream_response(client, request),
+            media_type="text/event-stream"
+        )
+    
+    response = await client.chat.completions.create(
+        model=request.model,
+        messages=[{"role": "user", "content": request.message}],
+        temperature=request.temperature,
+    )
+    
+    return ChatResponse(
+        response=response.choices[0].message.content,
+        model=request.model,
+        usage=dict(response.usage),
+        latency_ms=(time.time() - start) * 1000,
+    )
+
+async def stream_response(client, request: ChatRequest):
+    stream = await client.chat.completions.create(
+        model=request.model,
+        messages=[{"role": "user", "content": request.message}],
+        temperature=request.temperature,
+        stream=True,
+    )
+    async for chunk in stream:
+        if chunk.choices[0].delta.content:
+            yield f"data: {chunk.choices[0].delta.content}\\n\\n"
+    yield "data: [DONE]\\n\\n"
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Async All the Way" client:load>
+  FastAPI is async-first. Never use synchronous blocking calls (like `requests.post()` or `time.sleep()`) in async endpoints — they'll block the entire event loop. Use `httpx.AsyncClient`, `asyncio.sleep()`, and async database drivers.
+</Callout>
+
+## Hands-on Project: Dockerized AI API
+
+Build and deploy a complete containerized AI application:
+1. Create a FastAPI app with `/chat`, `/embed`, and `/health` endpoints
+2. Implement streaming responses for the chat endpoint
+3. Add rate limiting via Redis middleware
+4. Write a multi-stage Dockerfile (target: < 800MB image)
+5. Create docker-compose with API + Redis + pgvector
+6. Load test with `locust` — target 50 concurrent users
+7. Add Prometheus metrics endpoint for monitoring
+
+## Key Resources
+
+- [FastAPI Documentation](https://fastapi.tiangolo.com/) — Modern Python web framework
+- [Docker Best Practices](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/) — Official Docker guide
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/) — GPU in Docker
+- [Uvicorn](https://www.uvicorn.org/) — ASGI server for production
+
+## Summary
+
+1. Multi-stage Docker builds keep images small and secure
+2. GPU containers require NVIDIA Container Toolkit and CUDA base images
+3. FastAPI provides async-first, high-performance API development with automatic OpenAPI docs
+4. Always implement rate limiting, health checks, and graceful error handling in production
+5. Docker Compose simplifies local development with multi-service architectures
+
+---
+
+## Next Steps
+
+Next week, you'll take your containerized application to the **cloud** — deploying with CI/CD pipelines and making it publicly accessible.

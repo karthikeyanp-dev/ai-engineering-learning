@@ -1,0 +1,236 @@
+---
+title: "Local Models & Model Serving"
+description: "Run LLMs locally with Ollama, serve models with vLLM, and understand quantization tradeoffs for production inference"
+phase: 4
+week: 14
+objectives:
+  - "Run LLMs locally with Ollama (Llama, Mistral, Phi)"
+  - "Deploy model serving with vLLM for production"
+  - "Understand quantization levels and tradeoffs (GGUF, AWQ, GPTQ)"
+  - "Build a model router for optimal cost/quality balancing"
+estimatedTime: "8-10 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=Qa1h7ygwQq8"
+order: 14
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Running models locally gives you full control over your inference stack — no API costs, no rate limits, no data leaving your infrastructure. With tools like **Ollama** for development and **vLLM** for production serving, local inference has become practical for many use cases.
+
+Understanding **quantization** is key to running large models on limited hardware. A 70B parameter model that normally requires 140GB of VRAM can be quantized to run on a single 24GB GPU with minimal quality loss. This week, you'll set up local inference, benchmark different configurations, and build a model router that intelligently routes requests.
+
+<Callout type="tip" title="When to Go Local" client:load>
+  Local models are ideal for: development/testing (no API costs), privacy-sensitive data, high-throughput batch processing, and edge deployment. Cloud APIs are better for: state-of-the-art quality, low latency at scale, and when you don't want to manage infrastructure.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=Qa1h7ygwQq8" title="Running LLMs Locally - Ollama & vLLM Guide" client:load />
+
+## Quantization Formats Compared
+
+| Format | Method | Speed | Quality | Hardware | Best For |
+|--------|--------|-------|---------|----------|----------|
+| **FP16** | No quantization | Baseline | Best | 2x model size VRAM | Research |
+| **GGUF Q8** | 8-bit (llama.cpp) | Fast | Near-lossless | ~1x model size | Development |
+| **GGUF Q4_K_M** | 4-bit mixed | Very Fast | Good | ~0.5x model size | Local dev |
+| **AWQ** | 4-bit activation-aware | Fast (GPU) | Very Good | ~0.5x model size | Production GPU |
+| **GPTQ** | 4-bit post-training | Fast (GPU) | Good | ~0.5x model size | Production GPU |
+| **GGUF Q2_K** | 2-bit | Fastest | Degraded | ~0.25x model size | Edge/mobile |
+
+## GPU Requirements by Model Size
+
+| Model Size | FP16 VRAM | Q4 VRAM | Recommended GPU |
+|-----------|-----------|---------|-----------------|
+| 7B | 14 GB | 4-5 GB | RTX 3060 12GB |
+| 13B | 26 GB | 8-9 GB | RTX 3090 24GB |
+| 34B | 68 GB | 20 GB | RTX 4090 24GB |
+| 70B | 140 GB | 35-40 GB | 2x A100 80GB |
+
+## Ollama: Local Development
+
+Ollama makes it trivially easy to run models locally with a single command.
+
+<CodeBlock language="python" title="ollama_setup.py" client:load>
+{`# First, install Ollama: https://ollama.ai
+# Then pull models:
+# ollama pull llama3.1:8b
+# ollama pull mistral:7b
+# ollama pull phi3:mini
+
+import requests
+import time
+
+def query_ollama(prompt: str, model: str = "llama3.1:8b") -> dict:
+    """Query a local Ollama model."""
+    response = requests.post(
+        "http://localhost:11434/api/generate",
+        json={
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": 0.7,
+                "num_ctx": 4096,
+                "num_predict": 512,
+            }
+        }
+    )
+    return response.json()
+
+# Benchmark different models
+models = ["llama3.1:8b", "mistral:7b", "phi3:mini"]
+prompt = "Explain the concept of retrieval augmented generation in 3 sentences."
+
+for model in models:
+    start = time.time()
+    result = query_ollama(prompt, model)
+    elapsed = time.time() - start
+    tokens_per_sec = result.get("eval_count", 0) / elapsed
+    print(f"{model}: {elapsed:.2f}s ({tokens_per_sec:.1f} tok/s)")
+    print(f"  Response: {result['response'][:100]}...")
+    print()
+`}
+</CodeBlock>
+
+<Callout type="info" title="Ollama + LangChain" client:load>
+  Ollama integrates directly with LangChain via `langchain_ollama`. Use `ChatOllama(model="llama3.1:8b")` as a drop-in replacement for `ChatOpenAI` during development — same interface, zero API costs.
+</Callout>
+
+## vLLM: Production Model Serving
+
+vLLM uses **PagedAttention** for efficient memory management and achieves 2-4x higher throughput than naive HuggingFace inference.
+
+<CodeBlock language="python" title="vllm_deployment.py" client:load>
+{`# Start vLLM server:
+# python -m vllm.entrypoints.openai.api_server \\
+#     --model meta-llama/Meta-Llama-3.1-8B-Instruct \\
+#     --dtype auto \\
+#     --max-model-len 8192 \\
+#     --gpu-memory-utilization 0.9 \\
+#     --port 8000
+
+from openai import OpenAI
+
+# vLLM exposes an OpenAI-compatible API
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="not-needed")
+
+# Use exactly like OpenAI API
+response = client.chat.completions.create(
+    model="meta-llama/Meta-Llama-3.1-8B-Instruct",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is vLLM and why is it fast?"}
+    ],
+    temperature=0.7,
+    max_tokens=512,
+)
+print(response.choices[0].message.content)
+
+# Batch inference for high throughput
+prompts = [f"Summarize topic {i}" for i in range(100)]
+responses = []
+for prompt in prompts:
+    resp = client.chat.completions.create(
+        model="meta-llama/Meta-Llama-3.1-8B-Instruct",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=256,
+    )
+    responses.append(resp.choices[0].message.content)
+`}
+</CodeBlock>
+
+## Building a Model Router
+
+A model router directs requests to different models based on complexity, cost constraints, or latency requirements.
+
+<CodeBlock language="python" title="model_router.py" client:load>
+{`from enum import Enum
+from dataclasses import dataclass
+from openai import OpenAI
+
+class ModelTier(Enum):
+    LOCAL_FAST = "ollama/phi3:mini"        # Simple tasks
+    LOCAL_QUALITY = "ollama/llama3.1:8b"   # Medium tasks
+    CLOUD_STANDARD = "gpt-4o-mini"         # Complex tasks
+    CLOUD_PREMIUM = "gpt-4o"               # Critical tasks
+
+@dataclass
+class RoutingDecision:
+    model: ModelTier
+    reason: str
+
+def classify_complexity(query: str) -> ModelTier:
+    """Route queries to appropriate model tier based on complexity."""
+    # Simple heuristics (in production, use a small classifier)
+    word_count = len(query.split())
+    
+    if word_count < 20 and any(w in query.lower() for w in ["hello", "hi", "thanks"]):
+        return ModelTier.LOCAL_FAST
+    elif word_count < 50:
+        return ModelTier.LOCAL_QUALITY
+    elif "analyze" in query.lower() or "compare" in query.lower():
+        return ModelTier.CLOUD_PREMIUM
+    else:
+        return ModelTier.CLOUD_STANDARD
+
+def route_and_respond(query: str) -> str:
+    """Route query to best model and return response."""
+    tier = classify_complexity(query)
+    
+    if tier in (ModelTier.LOCAL_FAST, ModelTier.LOCAL_QUALITY):
+        client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+        model = tier.value.split("/")[1]
+    else:
+        client = OpenAI()  # Uses OPENAI_API_KEY
+        model = tier.value
+    
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": query}],
+        max_tokens=512
+    )
+    return response.choices[0].message.content
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Quantization Quality" client:load>
+  Below Q4 quantization (Q3, Q2), model quality degrades noticeably — especially for reasoning tasks. Always benchmark your specific use case. A quantized 13B model often outperforms a full-precision 7B model.
+</Callout>
+
+## Hands-on Project: Local Inference Benchmark
+
+Build a comprehensive benchmarking suite:
+1. Set up Ollama with 3+ models (Llama 3.1, Mistral, Phi-3)
+2. Create a test suite with 50 diverse prompts across categories (reasoning, coding, summarization, creative)
+3. Measure: tokens/second, time-to-first-token, memory usage, quality scores
+4. Compare quantization levels (Q8, Q4_K_M, Q4_K_S) on the same model
+5. Build a model router that selects optimal model per request
+6. Deploy one model via vLLM and load test with concurrent requests
+
+## Key Resources
+
+- [Ollama](https://ollama.ai/) — Run models locally with one command
+- [vLLM Documentation](https://docs.vllm.ai/) — High-throughput LLM serving
+- [GGUF Format Spec](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md) — Quantization format details
+- [llama.cpp](https://github.com/ggerganov/llama.cpp) — C++ inference engine behind Ollama
+- [HuggingFace Model Hub](https://huggingface.co/models) — Pre-quantized models (TheBloke)
+
+## Summary
+
+1. Ollama provides frictionless local model development with an OpenAI-compatible API
+2. vLLM delivers production-grade serving with PagedAttention for 2-4x throughput gains
+3. Quantization (Q4-Q8) enables running large models on consumer hardware with acceptable quality
+4. Model routers can reduce costs by 50-80% by directing simple queries to cheaper/local models
+5. Always benchmark quantized models on your specific tasks before deploying
+
+---
+
+## Next Steps
+
+Next week begins **Phase 5: Fine-Tuning** — you'll learn when to fine-tune vs. use RAG or prompting, and set up your training environment.

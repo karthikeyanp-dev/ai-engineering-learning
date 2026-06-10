@@ -1,0 +1,206 @@
+---
+title: "Fine-Tuning Theory & Setup"
+description: "Understand when to fine-tune vs RAG vs prompting, master LoRA/QLoRA theory, and configure your training environment"
+phase: 5
+week: 15
+objectives:
+  - "Apply a decision framework for fine-tuning vs RAG vs prompting"
+  - "Understand LoRA and QLoRA theory and implementation"
+  - "Set up a training environment with proper GPU configuration"
+  - "Prepare datasets for fine-tuning"
+estimatedTime: "8-10 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=eC6Hd1hFvos"
+order: 15
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Fine-tuning is a powerful technique, but it's not always the right answer. Before investing time and compute into training, you need a clear framework for deciding between **prompt engineering**, **RAG**, and **fine-tuning**. Each approach has different cost profiles, iteration speeds, and use cases.
+
+When fine-tuning is the right choice, **LoRA (Low-Rank Adaptation)** and **QLoRA** make it accessible on consumer hardware. Instead of updating all model parameters, LoRA trains small adapter matrices that achieve comparable quality at a fraction of the compute cost.
+
+This week, you'll build the decision framework, understand the theory behind parameter-efficient fine-tuning, and configure your training environment.
+
+<Callout type="important" title="The Fine-Tuning Decision" client:load>
+  Fine-tuning is appropriate when: (1) you need consistent style/format that prompting can't achieve, (2) you have domain-specific knowledge not in the base model, (3) you need lower latency by distilling a large model's behavior into a smaller one, or (4) you need to reduce token usage by teaching implicit behavior.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=eC6Hd1hFvos" title="DeepLearning.AI - Finetuning Large Language Models" client:load />
+
+## Decision Framework: Prompt Engineering vs RAG vs Fine-Tuning
+
+| Criteria | Prompt Engineering | RAG | Fine-Tuning |
+|----------|-------------------|-----|-------------|
+| **Setup Time** | Minutes | Hours-Days | Days-Weeks |
+| **Iteration Speed** | Instant | Fast | Slow |
+| **Cost (upfront)** | None | Moderate (infra) | High (compute) |
+| **Cost (inference)** | Higher (long prompts) | Medium | Lower |
+| **Knowledge Updates** | Immediate | Fast (re-index) | Requires retraining |
+| **Custom Behavior** | Limited | Limited | Excellent |
+| **Hallucination Control** | Moderate | Good (grounded) | Moderate |
+| **Data Required** | 0 examples | Documents | 100-10,000+ examples |
+| **Best For** | General tasks | Knowledge-heavy Q&A | Style/format/behavior |
+
+### When to Choose Each
+
+- **Prompt Engineering**: Start here. If 5-10 examples in context solve the problem, you don't need more.
+- **RAG**: When the model needs access to specific, updateable knowledge (documents, databases).
+- **Fine-Tuning**: When you need consistent behavior/format, domain expertise baked in, or smaller model performance matching larger ones.
+
+<Callout type="tip" title="The Progression" client:load>
+  Always try prompt engineering first, then RAG, then fine-tuning. Each step up the ladder costs more time and money. Many production systems combine all three — a fine-tuned model with RAG and carefully crafted prompts.
+</Callout>
+
+## LoRA: Low-Rank Adaptation
+
+LoRA freezes the pre-trained model weights and injects trainable low-rank decomposition matrices into each transformer layer. Instead of updating a weight matrix W (d×d), LoRA trains two smaller matrices A (d×r) and B (r×d) where r &lt;&lt; d.
+
+**Key Parameters:**
+- **Rank (r)**: Dimensionality of the low-rank matrices (4-64 typical). Higher = more capacity but more parameters.
+- **Alpha**: Scaling factor. Usually set to 2×rank.
+- **Target Modules**: Which layers to adapt (q_proj, v_proj, k_proj, o_proj, etc.)
+- **Dropout**: Regularization for the adapter (0.05-0.1 typical)
+
+## GPU Requirements by Model Size
+
+| Model Size | Full Fine-Tune | LoRA (FP16) | QLoRA (4-bit) | Recommended GPU |
+|-----------|---------------|-------------|---------------|-----------------|
+| 7B | 112 GB | 16 GB | 6-8 GB | RTX 4090 / A10 |
+| 13B | 208 GB | 28 GB | 12-14 GB | A100 40GB |
+| 34B | 544 GB | 72 GB | 24-28 GB | A100 80GB |
+| 70B | 1120 GB | 160 GB | 40-48 GB | 2x A100 80GB |
+
+## Setting Up Your Training Environment
+
+<CodeBlock language="python" title="training_setup.py" client:load>
+{`# Install required packages
+# pip install torch transformers peft trl datasets bitsandbytes accelerate wandb
+
+import torch
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+)
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+
+# QLoRA configuration: load model in 4-bit
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",           # Normalized float 4-bit
+    bnb_4bit_compute_dtype=torch.bfloat16, # Compute in bf16
+    bnb_4bit_use_double_quant=True,       # Double quantization
+)
+
+# Load base model in 4-bit
+model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    quantization_config=bnb_config,
+    device_map="auto",
+    trust_remote_code=True,
+)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer.pad_token = tokenizer.eos_token
+
+# Prepare model for QLoRA training
+model = prepare_model_for_kbit_training(model)
+
+# LoRA configuration
+lora_config = LoraConfig(
+    r=16,                          # Rank
+    lora_alpha=32,                 # Alpha (2x rank is common)
+    target_modules=[
+        "q_proj", "k_proj", "v_proj", "o_proj",
+        "gate_proj", "up_proj", "down_proj"
+    ],
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+)
+
+# Apply LoRA to model
+model = get_peft_model(model, lora_config)
+model.print_trainable_parameters()
+# Output: trainable params: 13,631,488 || all params: 8,043,126,784 || trainable%: 0.17%
+`}
+</CodeBlock>
+
+## Dataset Preparation
+
+<CodeBlock language="python" title="dataset_preparation.py" client:load>
+{`from datasets import Dataset
+import json
+
+# Training data format: instruction/input/output or conversation format
+training_examples = [
+    {
+        "instruction": "Extract the key entities from this customer support ticket.",
+        "input": "My order #12345 hasn't arrived. I ordered on March 5th and it's now March 20th. Please help!",
+        "output": "Order ID: #12345\\nOrder Date: March 5th\\nCurrent Date: March 20th\\nIssue: Delivery delay\\nSentiment: Frustrated"
+    },
+    # ... hundreds more examples
+]
+
+def format_instruction(sample: dict) -> str:
+    """Format into Llama 3.1 chat template."""
+    return f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+You are a customer support entity extractor. Extract structured data from tickets.<|eot_id|>
+<|start_header_id|>user<|end_header_id|>
+{sample['instruction']}
+
+{sample['input']}<|eot_id|>
+<|start_header_id|>assistant<|end_header_id|>
+{sample['output']}<|eot_id|>"""
+
+# Create HuggingFace dataset
+dataset = Dataset.from_list(training_examples)
+dataset = dataset.map(lambda x: {"text": format_instruction(x)})
+
+# Split into train/eval
+dataset = dataset.train_test_split(test_size=0.1)
+print(f"Train: {len(dataset['train'])}, Eval: {len(dataset['test'])}")
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Data Quality > Quantity" client:load>
+  50 high-quality, diverse examples often outperform 5,000 noisy ones. Invest time in curating your training data — remove duplicates, fix inconsistencies, and ensure examples represent the full range of expected inputs.
+</Callout>
+
+## Hands-on Project: Fine-Tuning Environment Setup
+
+1. Set up a training environment (local GPU or cloud: Google Colab Pro, RunPod, Lambda Labs)
+2. Download and configure a base model (Llama 3.1 8B or Mistral 7B)
+3. Prepare a domain-specific dataset (100+ examples) for a task of your choice
+4. Verify QLoRA loading works and measure VRAM usage
+5. Run a test training loop (10 steps) to confirm everything works
+6. Set up Weights & Biases for experiment tracking
+
+## Key Resources
+
+- [PEFT Library](https://huggingface.co/docs/peft) — Parameter-Efficient Fine-Tuning
+- [TRL Library](https://huggingface.co/docs/trl) — Transformer Reinforcement Learning
+- [LoRA Paper](https://arxiv.org/abs/2106.09685) — Original research paper
+- [QLoRA Paper](https://arxiv.org/abs/2305.14314) — Quantized LoRA approach
+- [Weights & Biases](https://wandb.ai/) — Experiment tracking platform
+
+## Summary
+
+1. Always try prompt engineering and RAG before fine-tuning — it's the most expensive approach
+2. LoRA trains only 0.1-1% of parameters while achieving near-full fine-tuning quality
+3. QLoRA enables fine-tuning 7B models on a single consumer GPU (8GB+ VRAM)
+4. Dataset quality matters more than quantity — curate carefully
+5. The combination of fine-tuning + RAG + prompting often yields the best results
+
+---
+
+## Next Steps
+
+Next week, you'll do **hands-on fine-tuning** — running the full pipeline from data preparation through training, monitoring, and evaluation with real models.

@@ -1,0 +1,187 @@
+---
+import MainLayout from '../layouts/MainLayout.astro';
+---
+
+<MainLayout title="Projects & Portfolio" description="Build real-world AI engineering projects from beginner to advanced level">
+  <div class="py-4">
+    <!-- Page header -->
+    <div class="mb-10">
+      <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3">Projects & Portfolio</h1>
+      <p class="text-[var(--color-text-secondary)] text-lg leading-relaxed max-w-2xl">
+        Put your skills into practice with hands-on projects. Each project is designed to reinforce concepts from the curriculum and build your portfolio.
+      </p>
+      <a
+        href="/lessons/week-24-portfolio-projects"
+        class="inline-flex items-center gap-2 mt-4 px-5 py-2.5 rounded-lg bg-gradient-to-r from-[var(--color-accent-start)] to-[var(--color-accent-end)] text-white font-medium text-sm hover:opacity-90 transition-opacity"
+      >
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+        </svg>
+        View Full Portfolio Lesson
+      </a>
+    </div>
+
+    <!-- Beginner Projects -->
+    <section class="mb-10">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-8 h-8 rounded-lg bg-[var(--color-success)]/20 flex items-center justify-center">
+          <svg class="w-4 h-4 text-[var(--color-success)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+          </svg>
+        </div>
+        <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">Beginner Projects</h2>
+        <span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-success)]/20 text-[var(--color-success)] font-medium">Phases 0-2</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">LLM Chatbot</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Build a conversational chatbot using the OpenAI API with customizable system prompts and conversation memory.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">Python</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">OpenAI API</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Document Q&A</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Create a system that answers questions from your own documents using retrieval-augmented generation with ChromaDB.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">LangChain</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">ChromaDB</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Text Summarizer</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Build a tool that summarizes long articles and documents using LLMs with adjustable length and style controls.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">Python</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">Streamlit</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Simple Agent</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Build a basic ReAct agent that can use tools like web search and calculators to answer multi-step questions.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">LangChain</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">Agents</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Intermediate Projects -->
+    <section class="mb-10">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-8 h-8 rounded-lg bg-[var(--color-accent-start)]/20 flex items-center justify-center">
+          <svg class="w-4 h-4 text-[var(--color-accent-start)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+          </svg>
+        </div>
+        <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">Intermediate Projects</h2>
+        <span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-accent-start)]/20 text-[var(--color-accent-start)] font-medium">Phases 3-5</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Multi-Document RAG</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Build a RAG system that handles multiple document types with hybrid search, re-ranking, and source attribution.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">RAG</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">ChromaDB</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Research Assistant</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Build a LangGraph agent that can search the web, query databases, and synthesize research reports autonomously.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">LangGraph</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">Agents</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Code Reviewer</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Build an AI code reviewer that analyzes pull requests, identifies bugs, suggests improvements, and explains reasoning.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">GitHub API</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">Agents</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Fine-Tuned Model</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Fine-tune an open-source model on domain-specific data using LoRA/QLoRA, then deploy it with vLLM.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">LoRA</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">vLLM</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Advanced Projects -->
+    <section class="mb-10">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-8 h-8 rounded-lg bg-[var(--color-warning)]/20 flex items-center justify-center">
+          <svg class="w-4 h-4 text-[var(--color-warning)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
+          </svg>
+        </div>
+        <h2 class="text-xl font-semibold text-[var(--color-text-primary)]">Advanced Projects</h2>
+        <span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-warning)]/20 text-[var(--color-warning)] font-medium">Phases 6-9</span>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Production RAG Platform</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">End-to-end RAG system with hybrid search, re-ranking, evaluation, caching, and monitoring — ready for production deployment.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">RAG</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">FastAPI</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Multi-Agent System</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Orchestrate multiple specialized agents that research, write, edit, and publish content with human-in-the-loop approval.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">CrewAI</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">LangGraph</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Full-Stack AI SaaS</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Full-stack application with user auth, usage metering, model routing, and a React frontend — deployed on cloud infrastructure.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">Docker</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">CI/CD</span>
+          </div>
+        </div>
+        <div class="p-5 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10">
+          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2 text-sm">Open-Source Contribution</h3>
+          <p class="text-xs text-[var(--color-text-muted)] mb-3">Contribute to major AI open-source projects like LangChain, LlamaIndex, or vLLM — from bug fixes to new features.</p>
+          <div class="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+            <span class="px-2 py-0.5 rounded bg-white/5">Open Source</span>
+            <span class="px-2 py-0.5 rounded bg-white/5">Community</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <div class="glass rounded-xl p-8 text-center mt-8">
+      <h3 class="text-xl font-bold text-[var(--color-text-primary)] mb-2">Ready to Build?</h3>
+      <p class="text-[var(--color-text-muted)] mb-6 max-w-lg mx-auto">
+        Each project aligns with specific curriculum phases. Start with the lessons, then tackle the projects to solidify your understanding.
+      </p>
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a
+          href="/lessons/week-00-foundations"
+          class="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-[var(--color-accent-start)] to-[var(--color-accent-end)] text-white font-medium hover:opacity-90 transition-opacity"
+        >
+          Start from the Beginning
+        </a>
+        <a
+          href="/lessons"
+          class="inline-flex items-center gap-2 px-6 py-3 rounded-lg border border-white/20 text-[var(--color-text-secondary)] font-medium hover:border-[var(--color-accent-start)]/50 hover:text-white transition-all"
+        >
+          Browse All Lessons
+        </a>
+      </div>
+    </div>
+  </div>
+</MainLayout>

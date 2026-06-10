@@ -1,0 +1,155 @@
+---
+import MainLayout from './MainLayout.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<MainLayout title={`${title} - AI Engineering Learning`} description={description}>
+  <article class="lesson-content">
+    <slot />
+  </article>
+</MainLayout>
+
+<style is:global>
+  /* MDX prose-like typography for lesson content */
+  .lesson-content {
+    max-width: 72ch;
+    margin: 0 auto;
+  }
+
+  .lesson-content h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    color: var(--color-text-primary);
+  }
+
+  .lesson-content h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    color: var(--color-text-primary);
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .lesson-content h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--color-text-primary);
+  }
+
+  .lesson-content p {
+    margin-bottom: 1rem;
+    line-height: 1.75;
+    color: var(--color-text-secondary);
+  }
+
+  .lesson-content ul,
+  .lesson-content ol {
+    margin-bottom: 1rem;
+    padding-left: 1.5rem;
+    color: var(--color-text-secondary);
+  }
+
+  .lesson-content ul {
+    list-style-type: disc;
+  }
+
+  .lesson-content ol {
+    list-style-type: decimal;
+  }
+
+  .lesson-content li {
+    margin-bottom: 0.5rem;
+    line-height: 1.6;
+  }
+
+  .lesson-content code:not(pre code) {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.25rem;
+    font-size: 0.875em;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--color-accent-start);
+  }
+
+  .lesson-content pre {
+    margin-bottom: 1.5rem;
+    border-radius: 0.75rem;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
+  .lesson-content pre code {
+    white-space: pre;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+
+  .lesson-content blockquote {
+    border-left: 3px solid var(--color-accent-start);
+    padding-left: 1rem;
+    margin: 1.5rem 0;
+    color: var(--color-text-muted);
+    font-style: italic;
+  }
+
+  .lesson-content a {
+    color: var(--color-accent-start);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: opacity 0.2s;
+  }
+
+  .lesson-content a:hover {
+    opacity: 0.8;
+  }
+
+  .lesson-content hr {
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    margin: 2rem 0;
+  }
+
+  .lesson-content img {
+    border-radius: 0.75rem;
+    max-width: 100%;
+    margin: 1.5rem 0;
+  }
+
+  .lesson-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
+  .lesson-content th,
+  .lesson-content td {
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    text-align: left;
+  }
+
+  .lesson-content th {
+    background: rgba(255, 255, 255, 0.05);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .lesson-content td {
+    color: var(--color-text-secondary);
+  }
+</style>

@@ -1,0 +1,84 @@
+---
+import MainLayout from '../../layouts/MainLayout.astro';
+import { Badge } from '../../components/ui/Badge';
+import { ProgressStatsIsland } from '../../components/progress/Islands';
+import { CURRICULUM } from '../../lib/curriculum';
+import { getLessonUrl, getPhaseUrl } from '../../lib/navigation';
+
+export function getStaticPaths() {
+  return CURRICULUM.map((phase) => ({
+    params: { phase: phase.id },
+    props: { phase },
+  }));
+}
+
+const { phase } = Astro.props;
+---
+
+<MainLayout title={`${phase.title} - AI Engineering Learning`}>
+  <div class="py-4">
+    <!-- Phase header -->
+    <div class="mb-8">
+      <div class="flex items-center gap-2 mb-3">
+        <Badge variant="phase" client:load>Phase {phase.number}</Badge>
+        <span class="text-xs text-[var(--color-text-muted)]">{phase.estimatedHours} hours</span>
+      </div>
+      <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3">{phase.title}</h1>
+      <p class="text-[var(--color-text-secondary)] text-lg leading-relaxed">{phase.description}</p>
+    </div>
+
+    <!-- Phase progress stats -->
+    <div class="mb-8">
+      <ProgressStatsIsland client:load phaseId={phase.id} />
+    </div>
+
+    <!-- CTA Button -->
+    <div class="mb-8">
+      {phase.lessons.length > 0 && (
+        <a
+          href={getLessonUrl(phase.lessons[0].id)}
+          class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-[var(--color-accent-start)] to-[var(--color-accent-end)] text-white font-medium text-sm hover:opacity-90 transition-opacity"
+        >
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347a1.125 1.125 0 01-1.667-.986V5.653z" />
+          </svg>
+          Start Phase
+        </a>
+      )}
+    </div>
+
+    <!-- Lessons list -->
+    <div class="space-y-3">
+      <h2 class="text-xl font-semibold text-[var(--color-text-primary)] mb-4">Lessons</h2>
+      {phase.lessons.map((lesson) => (
+        <a
+          href={getLessonUrl(lesson.id)}
+          class="block p-4 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10 hover:border-[var(--color-accent-start)]/50 hover:-translate-y-0.5 transition-all duration-200 group"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                {lesson.week > 0 && (
+                  <span class="text-xs text-[var(--color-text-muted)]">Week {lesson.week}</span>
+                )}
+              </div>
+              <h3 class="text-sm font-semibold text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-start)] transition-colors">
+                {lesson.title}
+              </h3>
+              <div class="flex items-center gap-3 mt-2">
+                <span class="text-xs text-[var(--color-text-muted)]">
+                  {lesson.milestones.length} milestones
+                </span>
+              </div>
+            </div>
+            <div class="flex-shrink-0 ml-4">
+              <svg class="w-5 h-5 text-[var(--color-text-muted)] group-hover:text-[var(--color-accent-start)] group-hover:translate-x-0.5 transition-all" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </div>
+          </div>
+        </a>
+      ))}
+    </div>
+  </div>
+</MainLayout>

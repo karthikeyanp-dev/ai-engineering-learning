@@ -1,0 +1,245 @@
+---
+title: "RAG Fundamentals: Building Your First Retrieval Pipeline"
+description: "Build a complete RAG pipeline from scratch — document ingestion, chunking, embedding, vector storage, retrieval, and generation"
+phase: 2
+week: 4
+objectives:
+  - "Understand the full RAG pipeline: ingest → chunk → embed → store → retrieve → generate"
+  - "Learn vector database fundamentals and similarity search"
+  - "Implement basic chunking strategies (fixed-size, overlap, recursive)"
+  - "Build a working RAG system with ChromaDB"
+estimatedTime: "10-12 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=ug8KMPiH4Dc"
+order: 4
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Retrieval-Augmented Generation (RAG) is the most practical technique for giving LLMs access to your own data. Instead of fine-tuning a model (expensive, slow, inflexible), RAG retrieves relevant documents at query time and provides them as context for generation.
+
+RAG solves critical LLM limitations: hallucination (grounding responses in real data), knowledge cutoff (accessing up-to-date information), and privacy (keeping data in your own systems). If you build AI applications professionally, you *will* build RAG systems.
+
+In this lesson, you'll build a complete RAG pipeline from scratch — understanding every component so you can debug, optimize, and scale it in production.
+
+<Callout type="tip" title="RAG vs Fine-Tuning" client:load>
+  Use RAG when: data changes frequently, you need source attribution, or you have diverse document types. Use fine-tuning when: you need to change model behavior/style, reduce latency, or teach specialized reasoning patterns. Most production systems use RAG first.
+</Callout>
+
+## Recommended Video
+
+LangChain's RAG from Scratch series is the best hands-on introduction:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=ug8KMPiH4Dc" title="RAG from Scratch — LangChain" client:load />
+
+## The RAG Pipeline
+
+The complete RAG pipeline has two phases:
+
+**Indexing (offline):** Documents → Chunks → Embeddings → Vector Store
+
+**Querying (online):** Query → Embed → Retrieve → Augment Prompt → Generate
+
+### Step 1: Document Loading
+
+<CodeBlock language="python" title="document_loading.py" client:load>
+{`from langchain_community.document_loaders import (
+    PyPDFLoader,
+    TextLoader,
+    WebBaseLoader
+)
+
+# Load from different sources
+pdf_loader = PyPDFLoader("docs/technical_paper.pdf")
+pdf_docs = pdf_loader.load()
+
+text_loader = TextLoader("docs/notes.txt")
+text_docs = text_loader.load()
+
+web_loader = WebBaseLoader("https://docs.python.org/3/tutorial/index.html")
+web_docs = web_loader.load()
+
+print(f"Loaded: {len(pdf_docs)} PDF pages, {len(text_docs)} text files, {len(web_docs)} web pages")
+
+# Each document has: page_content (str) and metadata (dict)
+for doc in pdf_docs[:2]:
+    print(f"Page {doc.metadata.get('page', '?')}: {doc.page_content[:100]}...")
+`}
+</CodeBlock>
+
+### Step 2: Chunking Strategies
+
+<CodeBlock language="python" title="chunking_strategies.py" client:load>
+{`from langchain.text_splitter import (
+    CharacterTextSplitter,
+    RecursiveCharacterTextSplitter,
+    TokenTextSplitter
+)
+
+document_text = """[Your long document text here...]"""
+
+# Strategy 1: Fixed-size chunks (simplest, but breaks mid-sentence)
+fixed_splitter = CharacterTextSplitter(
+    chunk_size=500,
+    chunk_overlap=50,
+    separator="\\n"
+)
+
+# Strategy 2: Recursive splitting (recommended default)
+# Tries to split on paragraphs first, then sentences, then words
+recursive_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=500,
+    chunk_overlap=50,
+    separators=["\\n\\n", "\\n", ". ", " ", ""]
+)
+
+# Strategy 3: Token-based (respects model token limits)
+token_splitter = TokenTextSplitter(
+    chunk_size=200,  # in tokens, not characters
+    chunk_overlap=20
+)
+
+# Compare results
+for name, splitter in [("Fixed", fixed_splitter), 
+                        ("Recursive", recursive_splitter),
+                        ("Token", token_splitter)]:
+    chunks = splitter.split_text(document_text)
+    avg_len = sum(len(c) for c in chunks) / len(chunks) if chunks else 0
+    print(f"{name}: {len(chunks)} chunks, avg {avg_len:.0f} chars")
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Chunking Is Critical" client:load>
+  Bad chunking is the #1 cause of poor RAG quality. Chunks that are too small lose context; chunks that are too large dilute relevance. Start with 500-1000 characters with 10-20% overlap, then tune based on retrieval quality.
+</Callout>
+
+### Step 3: Embedding and Storage
+
+<CodeBlock language="python" title="embedding_storage.py" client:load>
+{`import chromadb
+from chromadb.utils import embedding_functions
+
+# Initialize ChromaDB with OpenAI embeddings
+openai_ef = embedding_functions.OpenAIEmbeddingFunction(
+    model_name="text-embedding-3-small"
+)
+
+# Create persistent client (data survives restarts)
+client = chromadb.PersistentClient(path="./chroma_db")
+
+# Create or get collection
+collection = client.get_or_create_collection(
+    name="my_documents",
+    embedding_function=openai_ef,
+    metadata={"hnsw:space": "cosine"}  # Use cosine similarity
+)
+
+# Add documents (ChromaDB handles embedding automatically)
+chunks = ["chunk 1 text...", "chunk 2 text...", "chunk 3 text..."]
+collection.add(
+    documents=chunks,
+    ids=[f"doc_{i}" for i in range(len(chunks))],
+    metadatas=[{"source": "paper.pdf", "page": i} for i in range(len(chunks))]
+)
+
+print(f"Collection size: {collection.count()} documents")
+`}
+</CodeBlock>
+
+### Step 4: Retrieval and Generation
+
+<CodeBlock language="python" title="rag_complete.py" client:load>
+{`from openai import OpenAI
+import chromadb
+from chromadb.utils import embedding_functions
+
+# Setup
+llm_client = OpenAI()
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
+openai_ef = embedding_functions.OpenAIEmbeddingFunction(model_name="text-embedding-3-small")
+collection = chroma_client.get_collection("my_documents", embedding_function=openai_ef)
+
+def rag_query(question: str, n_results: int = 3) -> str:
+    """Complete RAG pipeline: retrieve relevant chunks and generate answer."""
+    
+    # Retrieve relevant documents
+    results = collection.query(
+        query_texts=[question],
+        n_results=n_results
+    )
+    
+    # Build context from retrieved chunks
+    context_chunks = results["documents"][0]
+    context = "\\n\\n---\\n\\n".join(context_chunks)
+    
+    # Generate answer with context
+    response = llm_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": f"""Answer the user's question based on the following context.
+If the context doesn't contain enough information, say so clearly.
+Always cite which part of the context supports your answer.
+
+Context:
+{context}"""},
+            {"role": "user", "content": question}
+        ],
+        temperature=0.2
+    )
+    
+    return response.choices[0].message.content
+
+# Use the RAG system
+answer = rag_query("What are the key benefits of transformer architecture?")
+print(answer)
+`}
+</CodeBlock>
+
+<Callout type="info" title="Vector Similarity Search" client:load>
+  ChromaDB uses HNSW (Hierarchical Navigable Small World) algorithm for approximate nearest neighbor search. It trades a tiny bit of accuracy for massive speed gains — finding similar vectors among millions in milliseconds. Cosine similarity is the standard metric for text embeddings.
+</Callout>
+
+## Understanding Similarity Search
+
+Vector databases find documents by *meaning*, not keywords. Here's how cosine similarity works:
+
+- Two vectors pointing in the same direction → similarity close to 1.0
+- Orthogonal vectors → similarity close to 0.0
+- Opposite vectors → similarity close to -1.0
+
+For text embeddings, "The cat sat on the mat" and "A feline rested on the rug" will have high cosine similarity (~0.9) even though they share almost no words.
+
+## Hands-On Project: Document Q&A Chatbot
+
+Build a complete RAG chatbot that answers questions about your own documents:
+
+1. **Ingest**: Load 5-10 PDF or text documents into ChromaDB
+2. **Chunk**: Use RecursiveCharacterTextSplitter with 500 char chunks
+3. **Query**: Build a chat loop that retrieves context and generates answers
+4. **Evaluate**: Test with questions you know the answer to — does the system find the right chunks?
+5. **Iterate**: Experiment with different chunk sizes and overlap values
+
+## Key Resources
+
+- [LangChain RAG Tutorial](https://python.langchain.com/docs/tutorials/rag/) — Official RAG guide
+- [ChromaDB Documentation](https://docs.trychroma.com/) — Vector database getting started
+- [OpenAI Embeddings Guide](https://platform.openai.com/docs/guides/embeddings) — Embedding models and best practices
+- [RAG Paper](https://arxiv.org/abs/2005.11401) — Original RAG research paper
+
+## Summary
+
+- **RAG** grounds LLM responses in your own data, reducing hallucination
+- The pipeline: **Load → Chunk → Embed → Store → Retrieve → Generate**
+- **Chunking quality** is the biggest lever for RAG performance
+- **ChromaDB** provides simple, local vector storage with HNSW search
+- Start simple, measure quality, then iterate on each component
+
+---
+
+## Next Steps
+
+Your basic RAG works, but it can be much better. Next, you'll learn **advanced RAG techniques** — re-ranking, hybrid search, and query transformation — that dramatically improve retrieval quality.

@@ -1,0 +1,198 @@
+---
+title: "Alternative Frameworks & Comparison"
+description: "Explore LlamaIndex, Haystack, and other AI frameworks — learn when to use each one through hands-on comparison"
+phase: 4
+week: 13
+objectives:
+  - "Build data-centric applications with LlamaIndex"
+  - "Implement search-focused pipelines with Haystack"
+  - "Compare frameworks using a decision matrix"
+  - "Select the right framework for different use cases"
+estimatedTime: "10-12 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=cNMYeW2mpBs"
+order: 13
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+While LangChain is the most popular framework, it's not always the best choice. **LlamaIndex** excels at data ingestion and retrieval, **Haystack** shines for search-focused pipelines, and **Semantic Kernel** integrates deeply with Microsoft's ecosystem. Understanding the strengths and trade-offs of each framework is crucial for making informed architectural decisions.
+
+This week you'll build the same RAG system in multiple frameworks, giving you first-hand experience with their different approaches. You'll develop a decision matrix that you can reference throughout your career.
+
+<Callout type="tip" title="Framework Fatigue" client:load>
+  Don't try to learn every framework deeply. Instead, understand their philosophies and sweet spots. Pick one as your primary tool and know when to reach for alternatives.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=cNMYeW2mpBs" title="LlamaIndex vs LangChain - When to Use Each" client:load />
+
+## Framework Comparison: Decision Matrix
+
+| Criteria | LangChain | LlamaIndex | Haystack | Semantic Kernel |
+|----------|-----------|------------|----------|-----------------|
+| **Best For** | Agent workflows | Data indexing & RAG | Search pipelines | Enterprise/.NET |
+| **Learning Curve** | Medium | Low-Medium | Medium | Medium-High |
+| **Data Ingestion** | Basic | Excellent | Good | Basic |
+| **Agent Support** | Excellent (LangGraph) | Good | Limited | Good |
+| **Streaming** | Excellent | Good | Good | Excellent |
+| **Production Ready** | Yes | Yes | Yes | Yes |
+| **Community Size** | Largest | Large | Medium | Growing |
+| **Vendor Lock-in** | Low | Low | Low | Medium (Microsoft) |
+
+## Agent Framework Comparison
+
+| Framework | Architecture | Best For | Complexity |
+|-----------|-------------|----------|------------|
+| **LangGraph** | Graph-based state machine | Complex workflows with cycles | High |
+| **CrewAI** | Role-based multi-agent | Team-based collaboration | Medium |
+| **AutoGen** | Conversation-based | Research & code generation | Medium |
+| **Phidata** | Function-first agents | Tool-heavy applications | Low |
+
+## LlamaIndex: Data-Centric AI
+
+LlamaIndex is designed around the concept of **indexing your data** for optimal retrieval. Its abstractions focus on data connectors, indices, and query engines.
+
+<CodeBlock language="python" title="llamaindex_rag.py" client:load>
+{`from llama_index.core import (
+    VectorStoreIndex,
+    SimpleDirectoryReader,
+    Settings,
+    StorageContext,
+)
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.llms.openai import OpenAI
+from llama_index.core.node_parser import SentenceSplitter
+
+# Configure global settings
+Settings.llm = OpenAI(model="gpt-4o", temperature=0)
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-small")
+
+# Load and parse documents
+documents = SimpleDirectoryReader("./data").load_data()
+node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+nodes = node_parser.get_nodes_from_documents(documents)
+
+# Create index with custom storage
+index = VectorStoreIndex(nodes)
+
+# Query with advanced retrieval
+query_engine = index.as_query_engine(
+    similarity_top_k=5,
+    response_mode="tree_summarize",  # Hierarchical summarization
+)
+
+response = query_engine.query(
+    "What are the key principles of RAG system design?"
+)
+print(response)
+print(f"Sources: {[n.node.metadata for n in response.source_nodes]}")
+`}
+</CodeBlock>
+
+<Callout type="info" title="LlamaIndex Strength" client:load>
+  LlamaIndex's killer feature is its **data connectors hub** — 160+ integrations for loading data from Slack, Notion, databases, APIs, and more. If your application is primarily about structuring and querying diverse data sources, LlamaIndex is likely your best choice.
+</Callout>
+
+## Haystack: Search-Focused Pipelines
+
+Haystack uses a pipeline architecture with explicit component connections, making it intuitive for search and retrieval workloads.
+
+<CodeBlock language="python" title="haystack_rag.py" client:load>
+{`from haystack import Pipeline
+from haystack.components.converters import TextFileToDocument
+from haystack.components.preprocessors import DocumentSplitter
+from haystack.components.embedders import (
+    SentenceTransformersDocumentEmbedder,
+    SentenceTransformersTextEmbedder,
+)
+from haystack.components.writers import DocumentWriter
+from haystack.components.retrievers.in_memory import InMemoryEmbeddingRetriever
+from haystack.components.generators import OpenAIGenerator
+from haystack.components.builders.prompt_builder import PromptBuilder
+from haystack.document_stores.in_memory import InMemoryDocumentStore
+
+# Indexing pipeline
+document_store = InMemoryDocumentStore()
+
+indexing = Pipeline()
+indexing.add_component("converter", TextFileToDocument())
+indexing.add_component("splitter", DocumentSplitter(split_by="sentence", split_length=3))
+indexing.add_component("embedder", SentenceTransformersDocumentEmbedder())
+indexing.add_component("writer", DocumentWriter(document_store=document_store))
+
+indexing.connect("converter", "splitter")
+indexing.connect("splitter", "embedder")
+indexing.connect("embedder", "writer")
+
+# Query pipeline
+template = """Answer based on context:\\n{% for doc in documents %}{{ doc.content }}{% endfor %}\\nQuestion: {{ question }}"""
+
+query_pipeline = Pipeline()
+query_pipeline.add_component("embedder", SentenceTransformersTextEmbedder())
+query_pipeline.add_component("retriever", InMemoryEmbeddingRetriever(document_store=document_store))
+query_pipeline.add_component("prompt", PromptBuilder(template=template))
+query_pipeline.add_component("llm", OpenAIGenerator(model="gpt-4o"))
+
+query_pipeline.connect("embedder.embedding", "retriever.query_embedding")
+query_pipeline.connect("retriever", "prompt.documents")
+query_pipeline.connect("prompt", "llm")
+
+result = query_pipeline.run({"embedder": {"text": "How does RAG work?"}, "prompt": {"question": "How does RAG work?"}})
+`}
+</CodeBlock>
+
+## Framework Selection Guide
+
+Use this decision tree for selecting frameworks:
+
+<Callout type="important" title="Selection Decision Tree" client:load>
+  1. **Need complex agent workflows with cycles?** → LangGraph
+  2. **Primary focus is data ingestion and retrieval?** → LlamaIndex
+  3. **Building search-first applications?** → Haystack
+  4. **Microsoft ecosystem / .NET integration?** → Semantic Kernel
+  5. **Multi-agent collaboration?** → CrewAI or AutoGen
+  6. **Simple tool-calling agents?** → Phidata or direct API calls
+</Callout>
+
+## Hands-on Project: Framework Comparison
+
+Build the **same RAG application** in both LlamaIndex and Haystack:
+1. Index a set of 10+ technical documents
+2. Implement hybrid search (semantic + keyword)
+3. Add re-ranking for improved relevance
+4. Compare: latency, relevance scores, code complexity, and developer experience
+5. Write a decision document explaining which you'd choose for a production system and why
+
+**Evaluation Criteria:**
+- Code readability and maintainability
+- Performance (latency, throughput)
+- Retrieval quality (precision@5)
+- Extensibility (how easy to add features)
+
+## Key Resources
+
+- [LlamaIndex Documentation](https://docs.llamaindex.ai/) — Data framework for LLM applications
+- [Haystack Documentation](https://docs.haystack.deepset.ai/) — Search-focused AI pipelines
+- [Semantic Kernel](https://learn.microsoft.com/semantic-kernel/) — Microsoft's AI orchestration SDK
+- [CrewAI](https://docs.crewai.com/) — Multi-agent collaboration framework
+- [Framework Comparison Blog](https://www.langchain.com/blog) — LangChain team's perspective
+
+## Summary
+
+1. No single framework is best for all use cases — match the tool to the problem
+2. LlamaIndex excels at data ingestion and structured retrieval over diverse sources
+3. Haystack provides clean pipeline abstractions for search-focused applications
+4. Building the same system in multiple frameworks gives you the best intuition for selection
+5. Consider team expertise, community support, and long-term maintenance when choosing
+
+---
+
+## Next Steps
+
+Next week, you'll learn to **run models locally** with Ollama and vLLM — giving you full control over inference, reducing costs, and enabling offline development.

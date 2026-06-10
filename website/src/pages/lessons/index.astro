@@ -1,0 +1,73 @@
+---
+import MainLayout from '../../layouts/MainLayout.astro';
+import { Badge } from '../../components/ui/Badge';
+import { ProgressStatsIsland } from '../../components/progress/Islands';
+import { CURRICULUM } from '../../lib/curriculum';
+import { getLessonUrl, getPhaseUrl } from '../../lib/navigation';
+---
+
+<MainLayout title="All Lessons - AI Engineering Learning">
+  <div class="py-4">
+    <!-- Page header -->
+    <div class="mb-8">
+      <h1 class="text-3xl font-bold text-[var(--color-text-primary)] mb-3">All Lessons</h1>
+      <p class="text-[var(--color-text-secondary)]">
+        Your complete AI Engineering curriculum. Track your progress through each phase.
+      </p>
+    </div>
+
+    <!-- Overall progress stats -->
+    <div class="mb-8">
+      <ProgressStatsIsland client:load />
+    </div>
+
+    <!-- Phases and lessons -->
+    <div class="space-y-10">
+      {CURRICULUM.map((phase) => (
+        <section>
+          <!-- Phase section header -->
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <Badge variant="phase" client:load>Phase {phase.number}</Badge>
+              <h2 class="text-lg font-semibold text-[var(--color-text-primary)]">
+                <a href={getPhaseUrl(phase.id)} class="hover:text-[var(--color-accent-start)] transition-colors">
+                  {phase.title}
+                </a>
+              </h2>
+            </div>
+            <span class="text-xs text-[var(--color-text-muted)]">{phase.estimatedHours} hrs</span>
+          </div>
+
+          <p class="text-sm text-[var(--color-text-muted)] mb-4">{phase.description}</p>
+
+          <!-- Lesson cards grid -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {phase.lessons.map((lesson) => (
+              <a
+                href={getLessonUrl(lesson.id)}
+                class="block p-4 rounded-xl bg-[var(--color-bg-secondary)] border border-white/10 hover:border-[var(--color-accent-start)]/50 hover:-translate-y-0.5 transition-all duration-200 group"
+              >
+                <div class="flex items-start justify-between gap-2">
+                  <div class="flex-1 min-w-0">
+                    {lesson.week > 0 && (
+                      <span class="text-xs text-[var(--color-text-muted)] block mb-1">Week {lesson.week}</span>
+                    )}
+                    <h3 class="text-sm font-medium text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-start)] transition-colors leading-snug">
+                      {lesson.title}
+                    </h3>
+                    <span class="text-xs text-[var(--color-text-muted)] mt-1.5 inline-block">
+                      {lesson.milestones.length} milestones
+                    </span>
+                  </div>
+                  <svg class="w-4 h-4 text-[var(--color-text-muted)] group-hover:text-[var(--color-accent-start)] flex-shrink-0 mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                  </svg>
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  </div>
+</MainLayout>

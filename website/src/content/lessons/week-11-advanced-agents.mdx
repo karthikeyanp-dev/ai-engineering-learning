@@ -1,0 +1,488 @@
+---
+title: "Advanced Agent Patterns"
+description: "Implement long-term memory, dynamic planning, and human-in-the-loop patterns for production-ready agents"
+phase: 3
+week: 11
+objectives:
+  - "Implement long-term memory for agents"
+  - "Build dynamic planning and replanning capabilities"
+  - "Create human-in-the-loop approval workflows"
+  - "Design agents that maintain context across sessions"
+estimatedTime: "10-12 hours"
+difficulty: "advanced"
+videoUrl: "https://www.youtube.com/watch?v=9BPCV5TYPmg"
+order: 11
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+The agents you've built so far are stateless — each conversation starts from scratch, every task is planned once and executed rigidly, and every action is taken without human oversight. That works for demos, but production agents need more: they must remember past interactions, adapt their plans when circumstances change, and involve humans at critical decision points.
+
+Long-term memory lets agents build relationships over time — learning your preferences, remembering past decisions, and maintaining context across sessions. Dynamic planning lets agents adapt when things don't go as expected. Human-in-the-loop patterns ensure that agents never take critical actions without approval.
+
+These three capabilities separate toy agents from production agents. In this lesson, you'll implement all three.
+
+<Callout type="tip" title="The Production Gap" client:load>
+  Most AI agent tutorials stop at "it works in a notebook." Production agents need memory (to be useful over time), replanning (to handle failures gracefully), and human oversight (to prevent costly mistakes). If your agent can't do these three things, it's not production-ready.
+</Callout>
+
+## Recommended Video
+
+DeepLearning.AI's course on advanced agent patterns covers memory and human-in-the-loop:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=9BPCV5TYPmg" title="Advanced Agent Patterns — DeepLearning.AI" client:load />
+
+## Long-Term Memory for Agents
+
+### Memory Types
+
+Agents need different kinds of memory for different purposes:
+
+- **Conversation memory**: The immediate dialogue history (short-term, already handled by message lists)
+- **Episodic memory**: Records of past experiences and outcomes ("Last time I tried API X, it was down on weekends")
+- **Semantic memory**: General knowledge and facts about the user ("User prefers concise summaries" or "User's timezone is PST")
+
+<CodeBlock language="python" title="agent_memory.py" client:load>
+{`from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
+from langgraph.graph.message import add_messages
+from langgraph.checkpoint.memory import MemorySaver
+from typing import TypedDict, Annotated
+import json
+
+# In-memory store for long-term memories (use a real DB in production)
+memory_store = {
+    "user_preferences": {},
+    "user_facts": [],
+    "past_interactions": []
+}
+
+@tool
+def save_preference(key: str, value: str) -> str:
+    """Save a user preference for future interactions.
+    
+    Args:
+        key: The preference name (e.g., 'summary_style', 'timezone')
+        value: The preference value (e.g., 'concise', 'PST')
+    """
+    memory_store["user_preferences"][key] = value
+    return f"Saved preference: {key} = {value}"
+
+@tool
+def get_preferences() -> str:
+    """Retrieve all saved user preferences."""
+    if not memory_store["user_preferences"]:
+        return "No preferences saved yet."
+    return json.dumps(memory_store["user_preferences"], indent=2)
+
+@tool
+def save_fact(fact: str) -> str:
+    """Save an important fact about the user for future reference.
+    
+    Args:
+        fact: A fact to remember (e.g., 'User works in healthcare')
+    """
+    memory_store["user_facts"].append(fact)
+    return f"Remembered: {fact}"
+
+@tool
+def get_facts() -> str:
+    """Retrieve all saved facts about the user."""
+    if not memory_store["user_facts"]:
+        return "No facts saved yet."
+    return "\\n".join(f"- {f}" for f in memory_store["user_facts"])
+
+tools = [save_preference, get_preferences, save_fact, get_facts]
+
+# Build memory-augmented agent
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+model = ChatOpenAI(model="gpt-4o-mini").bind_tools(tools)
+
+def agent_node(state: AgentState):
+    system = """You are a helpful assistant with long-term memory.
+    When you learn something about the user (preferences, facts, context),
+    save it using the available tools. Before responding, check if you have
+    any saved preferences or facts that are relevant.
+    
+    Always greet returning users by recalling their preferences."""
+    
+    # Include relevant memories in the system prompt
+    facts = memory_store["user_facts"]
+    prefs = memory_store["user_preferences"]
+    
+    memory_context = ""
+    if facts:
+        memory_context += f"\\nKnown facts about user: {json.dumps(facts)}"
+    if prefs:
+        memory_context += f"\\nUser preferences: {json.dumps(prefs)}"
+    
+    messages = [
+        {"role": "system", "content": system + memory_context}
+    ] + state["messages"]
+    
+    response = model.invoke(messages)
+    return {"messages": [response]}
+
+def should_continue(state: AgentState):
+    last = state["messages"][-1]
+    return "tools" if last.tool_calls else END
+
+# Use MemorySaver for checkpointing (session persistence)
+checkpointer = MemorySaver()
+
+graph = StateGraph(AgentState)
+graph.add_node("agent", agent_node)
+graph.add_node("tools", ToolNode(tools))
+graph.add_edge(START, "agent")
+graph.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
+graph.add_edge("tools", "agent")
+
+memory_agent = graph.compile(checkpointer=checkpointer)
+
+# Run with thread_id for session persistence
+config = {"configurable": {"thread_id": "user-123"}}
+result = memory_agent.invoke(
+    {"messages": [{"role": "user", "content": "I prefer concise summaries and I work in data science"}]},
+    config=config
+)
+`}
+</CodeBlock>
+
+### Using Mem0 for Persistent Memory
+
+Mem0 (formerly MemGPT) provides a production-grade memory layer:
+
+<CodeBlock language="python" title="mem0_integration.py" client:load>
+{`from mem0 import Memory
+from openai import OpenAI
+
+# Initialize Mem0 with your preferred backend
+memory = Memory()
+
+# Add memories from conversations
+memory.add("I prefer Python over JavaScript for backend work", user_id="user-123")
+memory.add("I'm working on a RAG project for legal documents", user_id="user-123")
+memory.add("My deadlines are always tight, I need fast solutions", user_id="user-123")
+
+# Search relevant memories before responding
+relevant = memory.search("What programming languages does the user prefer?", user_id="user-123")
+for m in relevant:
+    print(f"  Memory: {m['memory']} (score: {m['score']:.2f})")
+
+# Use memories to personalize agent responses
+client = OpenAI()
+
+def chat_with_memory(user_id: str, message: str) -> str:
+    # Retrieve relevant memories
+    memories = memory.search(message, user_id=user_id, limit=5)
+    memory_context = "\\n".join(m["memory"] for m in memories)
+    
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": f"You are a helpful assistant. What you know about this user:\\n{memory_context}"},
+            {"role": "user", "content": message}
+        ]
+    )
+    
+    # Store new information from this conversation
+    memory.add(message, user_id=user_id)
+    memory.add(response.choices[0].message.content, user_id=user_id)
+    
+    return response.choices[0].message.content
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Memory Privacy" client:load>
+  Agent memory is powerful but raises privacy concerns. Always: (1) inform users what you store, (2) provide a way to view and delete memories, (3) don't store sensitive information (passwords, API keys, PII), (4) let users opt out of memory features entirely.
+</Callout>
+
+## Dynamic Planning and Replanning
+
+Real-world tasks rarely go according to plan. Agents need to adapt when tools fail, information is missing, or requirements change:
+
+<CodeBlock language="python" title="planning_agent.py" client:load>
+{`from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.graph import StateGraph, START, END
+from typing import TypedDict, Annotated
+import json
+
+class PlanningState(TypedDict):
+    messages: Annotated[list, add_messages]
+    original_goal: str
+    current_plan: list[str]
+    completed_steps: list[str]
+    current_step: str
+    step_result: str
+    needs_replan: bool
+    is_complete: bool
+
+model = ChatOpenAI(model="gpt-4o-mini")
+
+def create_plan(state: PlanningState):
+    """Generate an initial plan to achieve the goal."""
+    response = model.invoke([
+        SystemMessage(content="""You are a planning agent. Given a goal, create a step-by-step plan.
+        Return ONLY a JSON array of strings, each being one step. Example:
+        ["Step 1: Research the topic", "Step 2: Write the report", "Step 3: Review and revise"]"""),
+        HumanMessage(content=f"Create a plan for: {state['original_goal']}")
+    ])
+    
+    try:
+        steps = json.loads(response.content)
+    except json.JSONDecodeError:
+        steps = [response.content]
+    
+    return {
+        "current_plan": steps,
+        "completed_steps": [],
+        "current_step": steps[0] if steps else "",
+        "is_complete": len(steps) == 0
+    }
+
+def execute_step(state: PlanningState):
+    """Execute the current step."""
+    response = model.invoke([
+        SystemMessage(content="Execute this step and report the result. If something went wrong, explain what failed."),
+        HumanMessage(content=f"Goal: {state['original_goal']}\\nExecuting step: {state['current_step']}")
+    ])
+    
+    # Simple failure detection
+    needs_replan = any(keyword in response.content.lower() 
+                       for keyword in ["failed", "error", "cannot", "unable"])
+    
+    return {
+        "step_result": response.content,
+        "needs_replan": needs_replan
+    }
+
+def replan(state: PlanningState):
+    """Adjust the plan based on what went wrong."""
+    remaining = [s for s in state["current_plan"] if s not in state["completed_steps"]]
+    
+    response = model.invoke([
+        SystemMessage(content="The current plan hit a problem. Adjust the remaining steps based on what happened."),
+        HumanMessage(content=f"""Goal: {state['original_goal']}
+Completed: {state['completed_steps']}
+Failed step: {state['current_step']}
+Failure reason: {state['step_result']}
+Remaining plan: {remaining}
+
+Provide an updated plan as a JSON array of steps.""")
+    ])
+    
+    try:
+        new_steps = json.loads(response.content)
+    except json.JSONDecodeError:
+        new_steps = remaining[1:]  # Skip the failed step and continue
+    
+    return {
+        "current_plan": state["completed_steps"] + new_steps,
+        "current_step": new_steps[0] if new_steps else "",
+        "needs_replan": False,
+        "is_complete": len(new_steps) == 0
+    }
+
+def advance_step(state: PlanningState):
+    """Move to the next step after a successful completion."""
+    completed = state["completed_steps"] + [state["current_step"]]
+    remaining = [s for s in state["current_plan"] if s not in completed]
+    
+    return {
+        "completed_steps": completed,
+        "current_step": remaining[0] if remaining else "",
+        "is_complete": len(remaining) == 0
+    }
+
+def route(state: PlanningState):
+    if state.get("is_complete"):
+        return END
+    elif state.get("needs_replan"):
+        return "replan"
+    else:
+        return "advance"
+
+# Build the planning graph
+graph = StateGraph(PlanningState)
+graph.add_node("create_plan", create_plan)
+graph.add_node("execute_step", execute_step)
+graph.add_node("replan", replan)
+graph.add_node("advance_step", advance_step)
+
+graph.add_edge(START, "create_plan")
+graph.add_edge("create_plan", "execute_step")
+graph.add_conditional_edges("execute_step", route, {
+    "replan": "replan", "advance": "advance_step", END: END
+})
+graph.add_edge("replan", "execute_step")
+graph.add_edge("advance_step", "execute_step")
+
+planning_agent = graph.compile()
+`}
+</CodeBlock>
+
+## Human-in-the-Loop
+
+For production agents, some actions need human approval before execution. LangGraph supports this with interrupt points:
+
+<CodeBlock language="python" title="human_in_loop.py" client:load>
+{`from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage
+from typing import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+
+# Define tools — some need approval, others don't
+APPROVAL_REQUIRED = {"send_email", "delete_data", "make_purchase"}
+
+@tool
+def search_database(query: str) -> str:
+    """Search the database. No approval needed."""
+    return f"Results for: {query}"
+
+@tool
+def send_email(to: str, subject: str, body: str) -> str:
+    """Send an email. REQUIRES HUMAN APPROVAL."""
+    return f"Email sent to {to}: {subject}"
+
+@tool
+def delete_data(table: str, condition: str) -> str:
+    """Delete data from a table. REQUIRES HUMAN APPROVAL."""
+    return f"Deleted from {table} where {condition}"
+
+tools = [search_database, send_email, delete_data]
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+    pending_approval: dict | None
+
+model = ChatOpenAI(model="gpt-4o-mini").bind_tools(tools)
+
+def agent_node(state: AgentState):
+    response = model.invoke(state["messages"])
+    return {"messages": [response]}
+
+def should_continue(state: AgentState):
+    last = state["messages"][-1]
+    if not last.tool_calls:
+        return END
+    
+    # Check if any tool call requires approval
+    for tc in last.tool_calls:
+        if tc["name"] in APPROVAL_REQUIRED:
+            return "await_approval"
+    
+    return "tools"
+
+def await_approval(state: AgentState):
+    """Pause and wait for human approval."""
+    last = state["messages"][-1]
+    tool_call = last.tool_calls[0]
+    return {
+        "pending_approval": {
+            "tool": tool_call["name"],
+            "args": tool_call["args"],
+            "id": tool_call["id"]
+        }
+    }
+
+def process_approval(state: AgentState):
+    """Process the human's approval decision."""
+    approval = state.get("pending_approval", {})
+    if not approval:
+        return {"messages": []}
+    
+    # In production, this would wait for actual human input
+    # For demo: auto-approve (replace with real approval logic)
+    approved = True  # get_human_approval(approval)
+    
+    if approved:
+        # Execute the tool
+        return {"pending_approval": None}
+    else:
+        # Reject and tell the agent
+        return {
+            "messages": [HumanMessage(content=f"The user rejected the action: {approval['tool']}. Try a different approach.")],
+            "pending_approval": None
+        }
+
+# Build with checkpointer for state persistence
+checkpointer = MemorySaver()
+
+graph = StateGraph(AgentState)
+graph.add_node("agent", agent_node)
+graph.add_node("tools", ToolNode(tools))
+graph.add_node("await_approval", await_approval)
+graph.add_node("process_approval", process_approval)
+
+graph.add_edge(START, "agent")
+graph.add_conditional_edges("agent", should_continue, {
+    "tools": "tools", "await_approval": "await_approval", END: END
+})
+graph.add_edge("tools", "agent")
+graph.add_edge("await_approval", "process_approval")
+graph.add_edge("process_approval", "agent")
+
+approval_agent = graph.compile(
+    checkpointer=checkpointer,
+    interrupt_before=["process_approval"]  # Pause before executing approved actions
+)
+`}
+</CodeBlock>
+
+<Callout type="important" title="Designing Approval Workflows" client:load>
+  Not every action needs approval — that would make agents unusable. Design approval tiers:
+  - **Auto-approved**: Read-only operations (search, calculate, read files)
+  - **Soft approval**: Moderate-impact actions (send email, write to non-production DB) — approve in batches
+  - **Hard approval**: Destructive actions (delete data, make purchases, modify production) — always require individual approval
+</Callout>
+
+## Hands-On Project: Personal Assistant with Memory and Approvals
+
+Build a personal assistant agent that combines all three advanced patterns:
+
+1. **Long-term memory**: Remember user preferences, past interactions, and important facts across sessions
+2. **Dynamic planning**: Break down complex requests into steps, replan when steps fail
+3. **Human-in-the-loop**: Require approval before sending emails or making purchases
+
+Requirements:
+- Use LangGraph with checkpointing for session persistence
+- Implement a memory store (start with in-memory, plan for a real database)
+- Create at least 4 tools: search, email, calendar, purchase
+- Email and purchase require human approval
+- The agent should greet returning users by name and reference past interactions
+- Test the full flow: complex task → planning → execution → approval → memory save
+
+## Key Resources
+
+- [LangGraph Persistence](https://langchain-ai.github.io/langgraph/concepts/persistence/) — Checkpointing and state management
+- [Mem0 Documentation](https://docs.mem0.ai/) — Production memory layer for agents
+- [Human-in-the-Loop with LangGraph](https://langchain-ai.github.io/langgraph/concepts/human_in_the_loop/) — Approval patterns
+- [MemGPT Paper](https://arxiv.org/abs/2310.08560) — Virtual context management for LLMs
+
+## Summary
+
+- **Long-term memory** has three types: conversation (chat history), episodic (past experiences), and semantic (facts and preferences)
+- **Mem0** provides a production-ready memory layer — use it instead of building your own
+- **Dynamic planning** means agents can replan when steps fail, not just retry blindly
+- **Human-in-the-loop** is essential for production — tier your approvals by risk level
+- **LangGraph checkpointing** enables session persistence and interrupt/resume patterns
+- These three capabilities are what separate demo agents from production agents
+
+---
+
+## Next Steps
+
+You've mastered the agent layer of AI engineering. Next, you'll explore **frameworks and tools** — LangChain, LangGraph, LlamaIndex, and the ecosystem of tools that power production AI systems.

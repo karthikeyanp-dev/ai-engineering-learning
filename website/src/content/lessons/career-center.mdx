@@ -1,0 +1,292 @@
+---
+title: "Career Center: AI Engineering Job Market & Interview Prep"
+description: "Navigate the AI engineering job market — salary data, top companies, interview preparation, and career growth strategies"
+phase: 10
+week: 25
+objectives:
+  - "Understand the AI engineering job landscape and compensation ranges"
+  - "Identify target companies and roles matching your skills"
+  - "Prepare for technical interviews (coding, system design, LLM-specific)"
+  - "Build your professional brand and network in the AI community"
+estimatedTime: "Ongoing"
+difficulty: "beginner"
+order: 25
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+The AI engineering job market in 2025-2026 is one of the most dynamic and lucrative in tech. Demand for engineers who can build production AI systems far outstrips supply — companies aren't just looking for ML researchers, they need **full-stack engineers who can ship AI products**. That's exactly what this curriculum has prepared you for.
+
+This career center is your comprehensive guide to navigating the market: understanding compensation, identifying target companies, preparing for interviews, and building the professional brand that gets you noticed. Whether you're transitioning from traditional software engineering or leveling up from an ML role, the strategies here will accelerate your job search.
+
+Unlike the other lessons, this isn't a one-time read — bookmark it and return throughout your career journey. The market moves fast, but the fundamentals of standing out remain constant: **build impressive things, communicate clearly, and help others along the way**.
+
+<Callout type="info" title="Market Context: 2025-2026" client:load>
+  AI Engineer roles have grown 300%+ since 2023. The role sits between traditional SWE and ML Engineer — requiring production engineering skills plus deep understanding of LLMs, RAG, agents, and evaluation. Companies value builders who can ship, not just researchers who can theorize.
+</Callout>
+
+## Salary Ranges & Role Levels
+
+### Compensation Overview (US Market, Total Comp)
+
+| Level | Experience | Base Salary | Total Comp (w/ equity) | Key Expectations |
+|-------|-----------|-------------|----------------------|------------------|
+| **Junior AI Engineer** | 0-2 years | $120K-$150K | $100K-$150K | Build features, implement RAG/agents with guidance |
+| **Mid-Level AI Engineer** | 2-5 years | $150K-$200K | $150K-$220K | Own systems end-to-end, evaluate trade-offs |
+| **Senior AI Engineer** | 5+ years | $200K-$280K | $220K-$350K | Architect solutions, mentor team, set technical direction |
+| **Staff+ AI Engineer** | 8+ years | $250K-$350K | $350K-$500K+ | Org-wide impact, define strategy, industry thought leadership |
+
+<Callout type="tip" title="Negotiation Leverage" client:load>
+  AI engineering salaries are highly negotiable because demand exceeds supply. Always negotiate with competing offers. Remote roles from HCOL-based companies (SF, NYC) often pay 80-90% of local rates regardless of your location. Equity at AI startups can be significant — evaluate vesting schedules carefully.
+</Callout>
+
+### Compensation by Company Type
+
+| Company Type | Junior | Senior | Notes |
+|--------------|--------|--------|-------|
+| Frontier Labs (OpenAI, Anthropic) | $200K+ | $500K+ | Highest comp, hardest interviews |
+| Big Tech (FAANG) | $180K+ | $400K+ | Strong equity component |
+| AI-Native Startups | $130K+ | $300K+ | More equity upside, faster growth |
+| Enterprise | $120K+ | $250K+ | Stable, good WLB |
+| Consulting/Agency | $100K+ | $200K+ | Varied projects, less depth |
+
+## Top Hiring Companies (2025-2026)
+
+### Frontier AI Labs
+Building the foundational models and pushing capabilities forward.
+
+- **OpenAI** — GPT series, ChatGPT, API platform
+- **Anthropic** — Claude, constitutional AI, safety research
+- **Google DeepMind** — Gemini, AlphaFold, research + products
+- **Meta FAIR** — Llama open-source models, research
+- **xAI** — Grok, large-scale training infrastructure
+
+### Big Tech AI Teams
+Integrating AI into products used by billions.
+
+- **Microsoft** — Copilot ecosystem, Azure AI, GitHub Copilot
+- **Amazon AWS** — Bedrock, Q, Alexa LLM, internal AI tools
+- **Apple** — On-device AI, Siri LLM, Apple Intelligence
+- **Netflix** — Recommendation, content understanding, personalization
+- **Uber** — Routing optimization, customer service AI, safety
+
+### AI-Native Companies
+Built from the ground up around AI capabilities.
+
+- **Perplexity** — AI search engine (RAG at massive scale)
+- **Cohere** — Enterprise LLM platform and embeddings
+- **Mistral** — European frontier models, open-weight
+- **Replit** — AI-powered coding and deployment
+- **Cursor** — AI code editor (context-aware generation)
+
+### Enterprise AI
+Bringing AI capabilities to traditional industries.
+
+- **Databricks** — Data + AI platform, MosaicML integration
+- **Snowflake** — Cortex AI, document understanding
+- **Scale AI** — Data labeling, RLHF, government contracts
+- **Weights & Biases** — MLOps, experiment tracking, evaluation
+- **LangChain/LangSmith** — AI application framework and observability
+
+### Vertical AI (Domain-Specific)
+AI products for specific industries — often highest impact.
+
+- **Harvey** — AI for legal professionals
+- **Abridge** — AI for healthcare documentation
+- **Glean** — Enterprise search and knowledge management
+- **Writer** — Enterprise content generation platform
+- **Jasper** — Marketing AI content creation
+
+## Interview Preparation
+
+### Interview Format Overview
+
+Most AI engineering interviews include 4-6 rounds:
+
+1. **Recruiter Screen** (30 min) — Background, motivation, salary expectations
+2. **Technical Phone Screen** (60 min) — Coding + AI concepts
+3. **System Design** (60 min) — Design an AI system end-to-end
+4. **LLM Deep Dive** (60 min) — RAG, agents, evaluation, fine-tuning
+5. **Coding** (60 min) — Python, data structures, algorithms
+6. **Behavioral** (45 min) — Past projects, collaboration, ambiguity
+
+### Coding Interview Preparation
+
+<CodeBlock language="python" title="coding_interview_patterns.py" client:load>
+{`# Pattern 1: Async API orchestration (very common in AI roles)
+import asyncio
+from typing import Any
+
+async def parallel_llm_calls(prompts: list[str], max_concurrent: int = 5) -> list[str]:
+    """Process multiple LLM calls with concurrency control."""
+    semaphore = asyncio.Semaphore(max_concurrent)
+    
+    async def bounded_call(prompt: str) -> str:
+        async with semaphore:
+            # Simulate LLM API call
+            await asyncio.sleep(0.5)
+            return f"Response to: {prompt}"
+    
+    tasks = [bounded_call(p) for p in prompts]
+    return await asyncio.gather(*tasks)
+
+# Pattern 2: Sliding window for context management
+def sliding_window_context(messages: list[dict], max_tokens: int = 4000) -> list[dict]:
+    """Keep conversation history within token budget."""
+    # Always keep system message
+    system = [m for m in messages if m["role"] == "system"]
+    history = [m for m in messages if m["role"] != "system"]
+    
+    selected = []
+    token_count = sum(len(m["content"].split()) for m in system) * 1.3
+    
+    # Add messages from most recent, working backwards
+    for msg in reversed(history):
+        msg_tokens = len(msg["content"].split()) * 1.3
+        if token_count + msg_tokens > max_tokens:
+            break
+        selected.insert(0, msg)
+        token_count += msg_tokens
+    
+    return system + selected
+
+# Pattern 3: Retry with exponential backoff (production essential)
+import random
+
+async def retry_with_backoff(func, max_retries: int = 3, base_delay: float = 1.0):
+    """Retry failed API calls with jitter."""
+    for attempt in range(max_retries):
+        try:
+            return await func()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise
+            delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+            await asyncio.sleep(delay)
+`}
+</CodeBlock>
+
+### LLM-Specific Interview Questions
+
+**Expect questions on:**
+
+1. **Tokenization** — "How does BPE work? Why do some words get split into multiple tokens?"
+2. **Attention** — "Explain self-attention. What's the computational complexity? How does KV-cache help?"
+3. **RAG** — "Design a RAG pipeline for [X]. How do you handle [edge case]? How do you evaluate it?"
+4. **Agents** — "What's the difference between ReAct and Plan-and-Execute? When would you use each?"
+5. **Fine-tuning** — "When would you fine-tune vs. use RAG? Explain LoRA. What data do you need?"
+6. **Evaluation** — "How do you measure if your RAG system is working? What metrics? How do you build eval sets?"
+
+### System Design for AI — Common Questions
+
+| Question | Key Topics to Cover |
+|----------|-------------------|
+| Design a RAG-powered customer support chatbot | Multi-tenant, routing, escalation, caching |
+| Design a document processing pipeline | Ingestion, chunking, OCR, metadata, scale |
+| Design a content moderation system | Real-time, multi-modal, appeals, accuracy |
+| Design an AI code assistant | Context gathering, latency, privacy, learning |
+| Design a recommendation system with LLMs | Personalization, cold start, A/B testing |
+
+### Behavioral Interview Tips
+
+**Key themes for AI roles:**
+- **Handling ambiguity** — "Tell me about a time you had unclear requirements for an AI feature"
+- **Technical judgment** — "When did you choose a simpler approach over a more sophisticated one?"
+- **Communication** — "How do you explain AI limitations to non-technical stakeholders?"
+- **Iteration** — "Describe a time your first approach didn't work and how you adapted"
+
+<Callout type="warning" title="Common Interview Mistakes" client:load>
+  1. Over-engineering solutions (use GPT-4o-mini when it works, don't jump to fine-tuning)
+  2. Ignoring cost/latency in system design (always discuss trade-offs)
+  3. Not asking clarifying questions (requirements matter!)
+  4. Focusing only on the AI parts (ignore infra/scale at your peril)
+  5. No evaluation strategy (if you can't measure it, interviewers worry)
+</Callout>
+
+## Building Your Professional Brand
+
+### Content Strategy
+
+| Platform | Content Type | Frequency | Purpose |
+|----------|-------------|-----------|---------|
+| **Twitter/X** | Short insights, demos, threads | 3-5x/week | Visibility, networking |
+| **LinkedIn** | Project posts, career updates | 1-2x/week | Professional network |
+| **Blog** (Dev.to/personal) | Deep technical articles | 2x/month | Authority building |
+| **GitHub** | Code, contributions, projects | Continuous | Proof of skills |
+| **YouTube** (optional) | Tutorials, architecture reviews | 2x/month | Teaching + reach |
+
+### Communities to Join
+
+- **[AI Engineer Discord](https://discord.gg/ai-engineer)** — Primary community for AI engineers
+- **[LangChain Discord](https://discord.gg/langchain)** — Framework-specific discussions
+- **[MLOps Community Slack](https://mlops.community/)** — Production ML/AI discussions
+- **[Latent Space Podcast Community](https://www.latent.space/)** — Industry insights and networking
+- **[Hugging Face Discord](https://discord.gg/huggingface)** — Open-source ML community
+- **[r/MachineLearning](https://reddit.com/r/MachineLearning)** — Research papers and discussions
+
+### Key Thought Leaders to Follow
+
+- **Andrej Karpathy** — Neural network fundamentals, AI education
+- **Simon Willison** — LLM tools, practical AI engineering
+- **Chip Huyen** — ML systems design, production ML
+- **Eugene Yan** — Applied ML patterns, recommendation systems
+- **Hamel Husain** — LLM evaluation, fine-tuning, practical AI
+- **Jason Liu** — Structured outputs, instructor library
+- **Harrison Chase** — LangChain, AI agents, application architecture
+- **Swyx (shawn wang)** — AI Engineer community, Latent Space
+
+## Action Items Checklist
+
+### Immediate (This Week)
+- [ ] Update your LinkedIn headline to include "AI Engineer" and key skills
+- [ ] Pin your best project on your GitHub profile
+- [ ] Join 2-3 communities from the list above
+- [ ] Follow 5+ thought leaders and engage with their content
+- [ ] Set up job alerts on LinkedIn, Y Combinator, and AI-specific boards
+
+### Short-term (Next 2-4 Weeks)
+- [ ] Complete and deploy your capstone project with live demo
+- [ ] Write a blog post about your project's architecture decisions
+- [ ] Contribute to one open-source AI project (even just docs/issues)
+- [ ] Schedule 3-5 informational interviews with AI engineers
+- [ ] Practice 2 system design problems per week out loud
+
+### Ongoing
+- [ ] Share learnings on social media (build in public)
+- [ ] Attend AI meetups/conferences (virtual or in-person)
+- [ ] Keep your portfolio projects updated and demos working
+- [ ] Practice coding problems (focus on async, data processing patterns)
+- [ ] Track industry news and new tools/frameworks
+
+<Callout type="tip" title="The Networking Multiplier" client:load>
+  80% of AI engineering roles are filled through referrals and network connections. Engage genuinely in communities — answer questions, share insights, help others. The best "job search strategy" is being known as someone helpful and knowledgeable before you start applying.
+</Callout>
+
+## Job Search Resources
+
+- **[AI Engineer Jobs](https://aiengineer.jobs/)** — Curated AI engineering roles
+- **[Y Combinator Work at a Startup](https://www.workatastartup.com/)** — Startup roles (filter by AI/ML)
+- **[Wellfound (AngelList)](https://wellfound.com/)** — Startup equity + salary data
+- **[levels.fyi](https://www.levels.fyi/)** — Compensation data by company and level
+- **[Blind](https://www.teamblind.com/)** — Anonymous salary and interview discussions
+- **[Interviewing.io](https://interviewing.io/)** — Practice technical interviews with feedback
+
+## Key Takeaways
+
+1. **AI engineering demand exceeds supply** — the market strongly favors candidates who can ship
+2. **Total comp ranges from $100K to $500K+** depending on level, company, and location
+3. **Interviews test breadth** — coding, system design, LLM knowledge, and behavioral
+4. **Your portfolio is your resume** — deployed projects with live demos win interviews
+5. **Network > Applications** — most roles filled through referrals; invest in community
+6. **Build in public** — sharing your journey attracts opportunities you can't predict
+7. **This is ongoing** — career development doesn't stop; keep learning, building, and sharing
+
+---
+
+## Congratulations!
+
+You've completed the Full Stack AI Engineering curriculum. You now have the knowledge, skills, and projects to thrive in this field. Remember: the best AI engineers are perpetual learners. The field evolves weekly — stay curious, keep building, and help others along the way. Good luck!

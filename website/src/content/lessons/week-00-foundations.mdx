@@ -1,0 +1,247 @@
+---
+title: "Foundations: Python, Math & Deep Learning Prerequisites"
+description: "Refresh your Python skills, revisit key mathematics for ML, and solidify your understanding of transformer architecture fundamentals"
+phase: 0
+week: 0
+objectives:
+  - "Validate intermediate/advanced Python proficiency"
+  - "Review linear algebra, calculus, and probability for ML"
+  - "Understand the transformer architecture and attention mechanism"
+  - "Build a simple neural network from scratch"
+estimatedTime: "15-20 hours"
+difficulty: "beginner"
+videoUrl: "https://www.youtube.com/watch?v=aircAruvnKk"
+order: 0
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Before diving into LLMs and AI engineering, you need a solid foundation in three areas: **Python programming**, **mathematics for machine learning**, and **deep learning fundamentals**. This lesson serves as both a refresher and a self-assessment — if you're comfortable with all the material here, you're ready to move forward.
+
+The AI engineering stack is built on top of these foundations. You'll use advanced Python daily (async programming, decorators, type hints), linear algebra concepts when working with embeddings and vector databases, and deep learning intuition when debugging model behavior or choosing architectures.
+
+<Callout type="info" title="Self-Assessment First" client:load>
+  Skim through this lesson before spending time on it. If you can confidently explain attention mechanisms and write intermediate Python without looking things up, skip ahead to Week 1. This content is here as a safety net, not a gate.
+</Callout>
+
+## Recommended Video
+
+Start with 3Blue1Brown's legendary introduction to neural networks — it builds the right visual intuition:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=aircAruvnKk" title="3Blue1Brown - But what is a neural network?" client:load />
+
+## Python Prerequisites (Intermediate/Advanced)
+
+You should be comfortable with these Python concepts before proceeding:
+
+### Core Language Features
+
+- **Type hints & generics** — `def process(items: list[str]) -> dict[str, int]`
+- **Async/await** — Essential for concurrent API calls to LLM providers
+- **Decorators & context managers** — Used heavily in frameworks like LangChain
+- **Dataclasses & Pydantic models** — Structured outputs from LLMs
+- **Generator patterns** — Streaming responses from APIs
+
+### Quick Python Review
+
+<CodeBlock language="python" title="python_review.py" client:load>
+{`import asyncio
+from dataclasses import dataclass
+from typing import AsyncGenerator
+
+# Type hints and dataclasses — used everywhere in AI engineering
+@dataclass
+class ChatMessage:
+    role: str  # "user" | "assistant" | "system"
+    content: str
+    metadata: dict | None = None
+
+# Async generators — essential for streaming LLM responses
+async def stream_response(messages: list[ChatMessage]) -> AsyncGenerator[str, None]:
+    """Simulate streaming tokens from an LLM."""
+    response = "This is a simulated streaming response"
+    for token in response.split():
+        await asyncio.sleep(0.1)  # Simulate network latency
+        yield token + " "
+
+# Context managers — resource management for DB connections, API clients
+class LLMClient:
+    async def __aenter__(self):
+        print("Connecting to LLM provider...")
+        return self
+    
+    async def __aexit__(self, *args):
+        print("Closing connection...")
+
+# Decorator pattern — used for caching, retry logic, tracing
+def retry(max_attempts: int = 3):
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts - 1:
+                        raise
+                    await asyncio.sleep(2 ** attempt)
+        return wrapper
+    return decorator
+`}
+</CodeBlock>
+
+## Mathematics for Machine Learning
+
+### Key Concepts You Need
+
+| Topic | Why It Matters | Used In |
+|-------|---------------|---------|
+| Linear Algebra (vectors, matrices, dot product) | Embeddings are vectors; similarity = dot product | Vector DBs, RAG |
+| Probability & Statistics | Token sampling, confidence scores | LLM decoding, evaluation |
+| Calculus (gradients, chain rule) | Understanding backpropagation | Fine-tuning |
+| Information Theory (entropy, cross-entropy) | Loss functions, perplexity | Model evaluation |
+
+### NumPy Operations for AI
+
+<CodeBlock language="python" title="numpy_foundations.py" client:load>
+{`import numpy as np
+
+# Vectors as embeddings (simplified)
+embedding_cat = np.random.randn(768)  # Typical embedding dimension
+embedding_dog = embedding_cat + np.random.randn(768) * 0.1  # Similar
+embedding_car = np.random.randn(768)  # Different concept
+
+# Cosine similarity — the foundation of semantic search
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+print(f"cat vs dog: {cosine_similarity(embedding_cat, embedding_dog):.4f}")
+print(f"cat vs car: {cosine_similarity(embedding_cat, embedding_car):.4f}")
+
+# Softmax — converts logits to probabilities (used in attention)
+def softmax(x: np.ndarray) -> np.ndarray:
+    exp_x = np.exp(x - np.max(x))  # Numerical stability
+    return exp_x / exp_x.sum()
+
+logits = np.array([2.0, 1.0, 0.1, -1.0])
+probs = softmax(logits)
+print(f"Softmax probabilities: {probs}")  # Sums to 1.0
+
+# Matrix multiplication — core operation in transformers
+# Attention: Q @ K.T / sqrt(d_k) then softmax then @ V
+d_k = 64
+Q = np.random.randn(10, d_k)  # 10 tokens, 64 dim queries
+K = np.random.randn(10, d_k)  # 10 tokens, 64 dim keys
+V = np.random.randn(10, d_k)  # 10 tokens, 64 dim values
+
+attention_scores = Q @ K.T / np.sqrt(d_k)
+attention_weights = np.apply_along_axis(softmax, 1, attention_scores)
+output = attention_weights @ V
+print(f"Attention output shape: {output.shape}")  # (10, 64)
+`}
+</CodeBlock>
+
+## Transformer Architecture Fundamentals
+
+The **Transformer** (Vaswani et al., 2017) is the architecture behind every modern LLM. The key innovation is the **self-attention mechanism** — it allows every token to "attend to" every other token in the sequence.
+
+### How Self-Attention Works
+
+1. Each token is projected into three vectors: **Query (Q)**, **Key (K)**, **Value (V)**
+2. Attention scores = Q × K^T / √d_k (how much should token i attend to token j?)
+3. Apply softmax to get attention weights (probabilities that sum to 1)
+4. Output = attention weights × V (weighted combination of values)
+
+<Callout type="tip" title="Intuition for Attention" client:load>
+  Think of attention like a search engine: the Query is your search query, Keys are document titles, and Values are document contents. The dot product between Q and K tells you which documents are most relevant, and you retrieve a weighted mix of their contents.
+</Callout>
+
+### Multi-Head Attention
+
+Instead of one attention operation, transformers use multiple "heads" in parallel — each head can learn different types of relationships (syntax, semantics, positional patterns). The outputs are concatenated and projected.
+
+### The Full Transformer Block
+
+```
+Input → Layer Norm → Multi-Head Attention → Residual Add
+      → Layer Norm → Feed-Forward Network → Residual Add → Output
+```
+
+Modern LLMs stack 32-96+ of these blocks, with billions of parameters in the feed-forward layers.
+
+<Callout type="important" title="You Don't Need to Implement Transformers" client:load>
+  As an AI engineer (not a researcher), you need conceptual understanding — not the ability to implement transformers from scratch. Focus on understanding WHY things work so you can debug and optimize at the application level.
+</Callout>
+
+## Simple Neural Network from Scratch
+
+<CodeBlock language="python" title="simple_nn.py" client:load>
+{`import numpy as np
+
+# A minimal neural network to solidify fundamentals
+class SimpleNN:
+    def __init__(self, input_size: int, hidden_size: int, output_size: int):
+        # Xavier initialization
+        self.W1 = np.random.randn(input_size, hidden_size) * np.sqrt(2.0 / input_size)
+        self.b1 = np.zeros(hidden_size)
+        self.W2 = np.random.randn(hidden_size, output_size) * np.sqrt(2.0 / hidden_size)
+        self.b2 = np.zeros(output_size)
+    
+    def relu(self, x):
+        return np.maximum(0, x)
+    
+    def forward(self, x):
+        self.z1 = x @ self.W1 + self.b1
+        self.a1 = self.relu(self.z1)
+        self.z2 = self.a1 @ self.W2 + self.b2
+        return self.z2
+    
+    def predict(self, x):
+        logits = self.forward(x)
+        return np.argmax(logits, axis=1)
+
+# Demo: XOR problem (non-linearly separable)
+X = np.array([[0,0], [0,1], [1,0], [1,1]])
+y = np.array([0, 1, 1, 0])
+
+nn = SimpleNN(input_size=2, hidden_size=8, output_size=2)
+print(f"Random predictions: {nn.predict(X)}")
+print("(Training omitted — focus is on architecture understanding)")
+`}
+</CodeBlock>
+
+## Self-Assessment Checklist
+
+Before moving to Week 1, verify you can:
+
+- [ ] Write async Python with proper error handling
+- [ ] Explain what cosine similarity measures and why it's used for embeddings
+- [ ] Describe the attention mechanism in your own words
+- [ ] Explain why transformers replaced RNNs (parallelization, long-range dependencies)
+- [ ] Implement basic NumPy operations (matrix multiply, softmax)
+- [ ] Explain the difference between encoder and decoder transformers
+
+## Key Resources
+
+- **[Andrej Karpathy: Zero to Hero](https://karpathy.ai/zero-to-hero.html)** — Best video series for building neural networks from scratch
+- **[3Blue1Brown: Neural Networks](https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi)** — Visual intuition for deep learning math
+- **[Fast.ai Practical Deep Learning](https://course.fast.ai/)** — Top-down practical approach
+- **[The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/)** — Best visual explanation of transformer architecture
+- **[Attention Is All You Need (paper)](https://arxiv.org/abs/1706.03762)** — Original transformer paper
+
+## Key Takeaways
+
+1. **Python proficiency** (async, types, decorators) is non-negotiable for AI engineering
+2. **Linear algebra** (dot products, matrix multiplication) powers embeddings and attention
+3. **Transformers** use self-attention to process all tokens in parallel with learned relationships
+4. **You need conceptual understanding**, not research-level implementation skills
+5. **Self-assess honestly** — gaps in foundations will slow you down later
+
+---
+
+## Next Steps
+
+If you're confident in these foundations, proceed to **Week 1: Understanding LLMs** where we'll explore tokenization, embeddings, and how modern language models actually generate text.

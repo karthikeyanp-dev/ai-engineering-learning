@@ -1,0 +1,422 @@
+---
+title: "Cost Optimization & Scaling"
+description: "Reduce LLM costs by 50%+ with caching and model routing, scale to 100+ concurrent users with queues and reliability patterns"
+phase: 6
+week: 21
+objectives:
+  - "Implement semantic caching for 50%+ cost reduction"
+  - "Build intelligent model routing for cost/quality optimization"
+  - "Scale with queue-based processing and batch inference"
+  - "Add reliability patterns: fallbacks, circuit breakers, graceful degradation"
+estimatedTime: "10-12 hours"
+difficulty: "advanced"
+videoUrl: "https://www.youtube.com/watch?v=a4KOhSMbDOQ"
+order: 21
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+LLM API costs can spiral quickly in production. A single GPT-4o request costs ~$0.01-0.05, which at 100K requests/day translates to $1,000-5,000 daily. Smart architecture decisions — **semantic caching**, **model routing**, and **prompt optimization** — can reduce costs by 50-80% without sacrificing quality.
+
+Simultaneously, scaling AI applications to handle concurrent load requires different patterns than traditional web apps. Long inference times (1-30s) mean you can't just add more web workers. This week, you'll implement production patterns for cost, scale, and reliability that separate hobby projects from production systems.
+
+<Callout type="important" title="The Cost Triangle" client:load>
+  Every AI request has three dimensions: **Quality** (model capability), **Latency** (response time), and **Cost** (tokens × price). You can optimize any two at the expense of the third. Smart systems dynamically balance all three based on the specific request.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=a4KOhSMbDOQ" title="Scaling LLM Applications - Cost & Performance" client:load />
+
+## Cost Optimization Strategies
+
+| Strategy | Cost Reduction | Latency Impact | Quality Impact | Complexity |
+|----------|---------------|----------------|----------------|------------|
+| **Semantic Caching** | 30-60% | Faster (cache hits) | None | Medium |
+| **Model Routing** | 40-70% | Varies | Minimal | Medium |
+| **Prompt Optimization** | 20-40% | Faster | None/Minimal | Low |
+| **Batch Processing** | 20-30% | Higher (async) | None | Medium |
+| **Output Length Limits** | 10-30% | Faster | Minimal | Low |
+| **Fine-tuned Small Model** | 60-80% | Faster | Requires validation | High |
+
+## Semantic Caching
+
+Traditional caching uses exact string matching. Semantic caching matches by **meaning** — "What's the weather in NYC?" hits the same cache as "Tell me NYC weather today."
+
+<CodeBlock language="python" title="semantic_cache.py" client:load>
+{`import hashlib
+import numpy as np
+import redis
+import json
+from openai import OpenAI
+
+client = OpenAI()
+redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
+
+class SemanticCache:
+    """Cache LLM responses by semantic similarity."""
+    
+    def __init__(self, similarity_threshold: float = 0.92):
+        self.threshold = similarity_threshold
+        self.embedding_model = "text-embedding-3-small"
+    
+    def _get_embedding(self, text: str) -> list[float]:
+        response = client.embeddings.create(input=text, model=self.embedding_model)
+        return response.data[0].embedding
+    
+    def _cosine_similarity(self, a: list[float], b: list[float]) -> float:
+        a, b = np.array(a), np.array(b)
+        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    
+    def get(self, query: str) -> str | None:
+        """Check cache for semantically similar query."""
+        query_embedding = self._get_embedding(query)
+        
+        # Get all cached embeddings (in production, use a vector DB)
+        cache_keys = redis_client.keys("cache:*")
+        
+        for key in cache_keys:
+            cached = json.loads(redis_client.get(key))
+            similarity = self._cosine_similarity(query_embedding, cached["embedding"])
+            
+            if similarity >= self.threshold:
+                # Cache hit!
+                redis_client.incr("metrics:cache_hits")
+                return cached["response"]
+        
+        redis_client.incr("metrics:cache_misses")
+        return None
+    
+    def set(self, query: str, response: str, ttl: int = 3600):
+        """Cache a response with its embedding."""
+        embedding = self._get_embedding(query)
+        cache_key = f"cache:{hashlib.md5(query.encode()).hexdigest()}"
+        
+        redis_client.setex(
+            cache_key,
+            ttl,
+            json.dumps({"embedding": embedding, "response": response, "query": query})
+        )
+
+# Usage
+cache = SemanticCache(similarity_threshold=0.92)
+
+def cached_llm_call(prompt: str) -> str:
+    # Check cache first
+    cached_response = cache.get(prompt)
+    if cached_response:
+        return cached_response
+    
+    # Cache miss — call LLM
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    result = response.choices[0].message.content
+    
+    # Store in cache
+    cache.set(prompt, result)
+    return result
+`}
+</CodeBlock>
+
+<Callout type="tip" title="Cache Invalidation" client:load>
+  Set appropriate TTLs based on content type. Factual queries can be cached longer (hours/days), while time-sensitive queries (current events, stock prices) should have short TTLs or no caching. Include cache version in the key to invalidate when prompts change.
+</Callout>
+
+## Intelligent Model Router
+
+<CodeBlock language="python" title="model_router_production.py" client:load>
+{`from dataclasses import dataclass
+from enum import Enum
+from openai import OpenAI
+import tiktoken
+
+class ModelTier(Enum):
+    SMALL = "gpt-4o-mini"       # $0.15/1M input
+    STANDARD = "gpt-4o"         # $2.50/1M input  
+    LOCAL = "ollama/llama3.1"   # Free (self-hosted)
+
+@dataclass
+class RoutingConfig:
+    model: ModelTier
+    max_tokens: int
+    temperature: float
+    reason: str
+
+class IntelligentRouter:
+    """Route requests to optimal model based on complexity and budget."""
+    
+    def __init__(self, daily_budget: float = 50.0):
+        self.daily_budget = daily_budget
+        self.daily_spend = 0.0
+        self.encoder = tiktoken.encoding_for_model("gpt-4o")
+    
+    def route(self, query: str, priority: str = "normal") -> RoutingConfig:
+        """Determine the best model for this request."""
+        token_count = len(self.encoder.encode(query))
+        
+        # Budget check - fall back to cheaper models if over budget
+        if self.daily_spend > self.daily_budget * 0.9:
+            return RoutingConfig(
+                model=ModelTier.LOCAL,
+                max_tokens=512,
+                temperature=0.7,
+                reason="Budget limit approaching - routing to local model"
+            )
+        
+        # Priority override
+        if priority == "critical":
+            return RoutingConfig(
+                model=ModelTier.STANDARD,
+                max_tokens=2048,
+                temperature=0.3,
+                reason="Critical priority - using best model"
+            )
+        
+        # Complexity-based routing
+        complexity = self._estimate_complexity(query)
+        
+        if complexity == "simple":
+            return RoutingConfig(
+                model=ModelTier.SMALL,
+                max_tokens=256,
+                temperature=0.7,
+                reason=f"Simple query ({token_count} tokens)"
+            )
+        elif complexity == "medium":
+            return RoutingConfig(
+                model=ModelTier.SMALL,
+                max_tokens=1024,
+                temperature=0.5,
+                reason=f"Medium complexity ({token_count} tokens)"
+            )
+        else:
+            return RoutingConfig(
+                model=ModelTier.STANDARD,
+                max_tokens=2048,
+                temperature=0.3,
+                reason=f"Complex query requiring advanced reasoning"
+            )
+    
+    def _estimate_complexity(self, query: str) -> str:
+        """Estimate query complexity using heuristics."""
+        indicators = {
+            "complex": ["analyze", "compare", "explain why", "step by step", 
+                       "trade-offs", "architecture", "design"],
+            "simple": ["what is", "define", "list", "yes or no", "true or false"]
+        }
+        
+        query_lower = query.lower()
+        for word in indicators["complex"]:
+            if word in query_lower:
+                return "complex"
+        for word in indicators["simple"]:
+            if word in query_lower:
+                return "simple"
+        return "medium"
+`}
+</CodeBlock>
+
+## Queue-Based Processing for Scale
+
+<CodeBlock language="python" title="queue_processing.py" client:load>
+{`import asyncio
+from dataclasses import dataclass, field
+from typing import Callable
+import redis.asyncio as redis
+import json
+import uuid
+
+@dataclass
+class Job:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    prompt: str = ""
+    model: str = "gpt-4o-mini"
+    priority: int = 5  # 1=highest, 10=lowest
+    status: str = "pending"  # pending, processing, completed, failed
+    result: str = ""
+
+class AsyncJobQueue:
+    """Priority queue for LLM requests with concurrency control."""
+    
+    def __init__(self, max_concurrent: int = 10, redis_url: str = "redis://localhost:6379"):
+        self.max_concurrent = max_concurrent
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+        self.redis_url = redis_url
+        self._redis = None
+    
+    async def connect(self):
+        self._redis = redis.from_url(self.redis_url)
+    
+    async def enqueue(self, job: Job) -> str:
+        """Add job to queue, returns job ID for polling."""
+        await self._redis.zadd(
+            "job_queue",
+            {json.dumps({"id": job.id, "prompt": job.prompt, "model": job.model}): job.priority}
+        )
+        await self._redis.hset(f"job:{job.id}", mapping={"status": "pending", "result": ""})
+        return job.id
+    
+    async def get_status(self, job_id: str) -> dict:
+        """Poll job status."""
+        data = await self._redis.hgetall(f"job:{job_id}")
+        return {k.decode(): v.decode() for k, v in data.items()}
+    
+    async def process_jobs(self, processor: Callable):
+        """Worker loop - process jobs with concurrency limit."""
+        while True:
+            # Pop highest priority job
+            result = await self._redis.zpopmin("job_queue")
+            if not result:
+                await asyncio.sleep(0.1)
+                continue
+            
+            job_data = json.loads(result[0][0])
+            
+            async with self.semaphore:
+                await self._redis.hset(f"job:{job_data['id']}", "status", "processing")
+                try:
+                    response = await processor(job_data["prompt"], job_data["model"])
+                    await self._redis.hset(
+                        f"job:{job_data['id']}", 
+                        mapping={"status": "completed", "result": response}
+                    )
+                except Exception as e:
+                    await self._redis.hset(
+                        f"job:{job_data['id']}", 
+                        mapping={"status": "failed", "result": str(e)}
+                    )
+`}
+</CodeBlock>
+
+## Reliability Patterns
+
+<CodeBlock language="python" title="reliability_patterns.py" client:load>
+{`import asyncio
+import time
+from dataclasses import dataclass
+from enum import Enum
+from openai import AsyncOpenAI
+
+class CircuitState(Enum):
+    CLOSED = "closed"      # Normal operation
+    OPEN = "open"          # Failing, reject requests
+    HALF_OPEN = "half_open"  # Testing if recovered
+
+@dataclass
+class CircuitBreaker:
+    """Prevent cascading failures with circuit breaker pattern."""
+    failure_threshold: int = 5
+    recovery_timeout: float = 30.0
+    
+    state: CircuitState = CircuitState.CLOSED
+    failure_count: int = 0
+    last_failure_time: float = 0
+    
+    def can_execute(self) -> bool:
+        if self.state == CircuitState.CLOSED:
+            return True
+        if self.state == CircuitState.OPEN:
+            if time.time() - self.last_failure_time > self.recovery_timeout:
+                self.state = CircuitState.HALF_OPEN
+                return True
+            return False
+        return True  # HALF_OPEN: allow one request
+    
+    def record_success(self):
+        self.failure_count = 0
+        self.state = CircuitState.CLOSED
+    
+    def record_failure(self):
+        self.failure_count += 1
+        self.last_failure_time = time.time()
+        if self.failure_count >= self.failure_threshold:
+            self.state = CircuitState.OPEN
+
+class ResilientLLMClient:
+    """LLM client with fallbacks, retries, and circuit breakers."""
+    
+    def __init__(self):
+        self.primary = AsyncOpenAI()  # OpenAI
+        self.fallback = AsyncOpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+        self.circuit = CircuitBreaker()
+    
+    async def generate(self, prompt: str, max_retries: int = 3) -> str:
+        """Generate with automatic fallback and retry."""
+        
+        # Try primary with circuit breaker
+        if self.circuit.can_execute():
+            for attempt in range(max_retries):
+                try:
+                    response = await self.primary.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": prompt}],
+                        timeout=30.0,
+                    )
+                    self.circuit.record_success()
+                    return response.choices[0].message.content
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        self.circuit.record_failure()
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+        
+        # Fallback to local model
+        try:
+            response = await self.fallback.chat.completions.create(
+                model="llama3.1:8b",
+                messages=[{"role": "user", "content": prompt}],
+                timeout=60.0,
+            )
+            return response.choices[0].message.content
+        except Exception:
+            return "Service temporarily unavailable. Please try again later."
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Graceful Degradation" client:load>
+  Never let your application crash because an LLM API is down. Implement fallback chains: primary model → cheaper model → local model → cached response → error message. Users prefer a slightly lower-quality response over a 500 error.
+</Callout>
+
+## Hands-on Project: Production-Ready Scaling
+
+Build a complete cost-optimized, scalable AI system:
+1. Implement semantic caching with Redis (target: 40%+ cache hit rate)
+2. Build a model router that reduces costs by 50%+ on a realistic query mix
+3. Add queue-based processing for handling burst traffic (100+ concurrent users)
+4. Implement circuit breaker with fallback to local model
+5. Load test the system with `locust` simulating real traffic patterns
+6. Create a cost dashboard showing: requests, cache hits, model distribution, total spend
+7. Demonstrate graceful degradation when the primary API is unavailable
+
+**Success Criteria:**
+- 50%+ cost reduction compared to routing everything to GPT-4o
+- 100+ concurrent users without errors
+- Automatic fallback working within 5 seconds of primary failure
+- P95 latency under 5 seconds for non-cached requests
+
+## Key Resources
+
+- [GPTCache](https://github.com/zilliztech/GPTCache) — Open-source semantic caching
+- [LiteLLM](https://docs.litellm.ai/) — Unified API for 100+ LLM providers with routing
+- [Redis Vectors](https://redis.io/docs/stack/search/reference/vectors/) — Vector similarity for caching
+- [Locust Load Testing](https://locust.io/) — Python-based load testing
+- [The Circuit Breaker Pattern](https://martinfowler.com/bliki/CircuitBreaker.html) — Martin Fowler
+
+## Summary
+
+1. Semantic caching can reduce LLM costs by 30-60% with minimal latency impact
+2. Intelligent model routing directs simple queries to cheaper models, saving 40-70%
+3. Queue-based processing with concurrency limits handles burst traffic gracefully
+4. Circuit breakers and fallback chains prevent cascading failures
+5. Combining all strategies can achieve 50-80% cost reduction while improving reliability
+
+---
+
+## Next Steps
+
+Congratulations on completing **Phase 6: MLOps & Deployment**! You now have the skills to build, deploy, monitor, and scale production AI applications. The next phases focus on evaluation, system design, and building your portfolio.

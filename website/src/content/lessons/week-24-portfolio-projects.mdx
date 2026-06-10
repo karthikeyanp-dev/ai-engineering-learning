@@ -1,0 +1,321 @@
+---
+title: "Capstone Projects & Portfolio Building"
+description: "Build impressive AI engineering projects, create a standout portfolio, and showcase your work to potential employers"
+phase: 9
+week: 24
+objectives:
+  - "Choose and scope a capstone project demonstrating full-stack AI skills"
+  - "Build a production-quality portfolio on GitHub"
+  - "Deploy and showcase projects with live demos"
+  - "Practice building in public and documenting your journey"
+estimatedTime: "40-60 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=mrDGGMBH7AM"
+order: 24
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+You've mastered the fundamentals, built RAG systems, designed agents, fine-tuned models, and learned system design. Now it's time to put it all together into **capstone projects** that demonstrate your capabilities to employers, collaborators, and the community.
+
+Your portfolio is your strongest signal in the AI engineering job market. Hiring managers consistently say that candidates with deployed, well-documented projects stand out dramatically from those with only course certificates. A single impressive project with a live demo, clean code, and thoughtful README is worth more than ten tutorial follow-alongs.
+
+This lesson gives you four capstone project ideas (pick 1-2), a framework for portfolio building, and guidance on showcasing your work effectively.
+
+<Callout type="important" title="Quality Over Quantity" client:load>
+  Build 1-2 excellent projects, not 5 mediocre ones. Each project should have: a live demo, comprehensive README, clean code, tests, and monitoring. Treat it like production software — because that's what hiring managers are evaluating.
+</Callout>
+
+## Recommended Video
+
+<VideoEmbed url="https://www.youtube.com/watch?v=mrDGGMBH7AM" title="Building AI Projects That Get You Hired" client:load />
+
+## Capstone Project Ideas
+
+### Project 1: AI Research Assistant
+
+**Difficulty:** Advanced | **Timeline:** 3-4 weeks | **Skills demonstrated:** RAG, Agents, Multi-source retrieval
+
+Build an AI assistant that helps researchers explore academic papers, synthesize findings, and generate literature reviews.
+
+**Core Features:**
+- Multi-source ingestion (arXiv PDFs, web pages, YouTube transcripts)
+- Hybrid RAG with re-ranking (semantic + keyword + citation graph)
+- Agent-based research workflows (search → read → synthesize → cite)
+- Conversation memory with session persistence
+- Citation generation in multiple formats (APA, MLA, BibTeX)
+
+**Tech Stack:**
+```
+Backend: FastAPI + LangGraph for agent orchestration
+Vector DB: Qdrant (open-source, self-hostable)
+Embeddings: text-embedding-3-small (OpenAI) or BGE (local)
+LLM: GPT-4o for synthesis, GPT-4o-mini for classification
+Frontend: Next.js or Streamlit
+Deployment: Vercel (frontend) + Railway/Fly.io (backend)
+```
+
+### Project 2: AI Code Review Agent
+
+**Difficulty:** Advanced | **Timeline:** 2-3 weeks | **Skills demonstrated:** Agents, Tool use, GitHub API
+
+Build a GitHub bot that automatically reviews pull requests with intelligent, contextual feedback.
+
+**Core Features:**
+- PR diff parsing and understanding
+- Codebase context retrieval (related files, conventions, past reviews)
+- Multi-aspect review (bugs, security, performance, style, tests)
+- Inline comment generation with suggestions
+- Confidence scoring (only comment when confident)
+- Learning from merged PRs and review feedback
+
+<CodeBlock language="python" title="code_review_agent.py" client:load>
+{`from dataclasses import dataclass
+from enum import Enum
+
+class ReviewAspect(Enum):
+    BUG = "potential_bug"
+    SECURITY = "security_concern"
+    PERFORMANCE = "performance_issue"
+    STYLE = "style_suggestion"
+    TEST = "missing_test"
+
+@dataclass
+class ReviewComment:
+    file_path: str
+    line_number: int
+    aspect: ReviewAspect
+    severity: str  # "critical" | "warning" | "suggestion"
+    comment: str
+    suggested_fix: str | None = None
+    confidence: float = 0.0
+
+class CodeReviewAgent:
+    def __init__(self, repo_context_retriever, llm_client):
+        self.retriever = repo_context_retriever
+        self.llm = llm_client
+        self.confidence_threshold = 0.7
+    
+    async def review_pr(self, pr_diff: str, pr_description: str) -> list[ReviewComment]:
+        """Review a PR and generate comments."""
+        # 1. Parse diff into file changes
+        changes = self.parse_diff(pr_diff)
+        
+        # 2. Retrieve relevant context for each file
+        contexts = await self.retriever.get_context(changes)
+        
+        # 3. Generate review comments per file
+        comments = []
+        for change, context in zip(changes, contexts):
+            file_comments = await self.review_file(change, context, pr_description)
+            # Only include high-confidence comments
+            comments.extend(
+                c for c in file_comments if c.confidence > self.confidence_threshold
+            )
+        
+        return comments
+    
+    def parse_diff(self, diff: str) -> list[dict]:
+        """Parse unified diff format into structured changes."""
+        # Implementation: split by file, extract additions/deletions
+        ...
+    
+    async def review_file(self, change, context, description) -> list[ReviewComment]:
+        """Review a single file change."""
+        # Implementation: prompt LLM with change + context + conventions
+        ...
+`}
+</CodeBlock>
+
+### Project 3: Domain-Specific Copilot
+
+**Difficulty:** Expert | **Timeline:** 4-6 weeks | **Skills demonstrated:** Fine-tuning, RAG, Full-stack
+
+Build a specialized coding assistant for a specific domain (e.g., data engineering, DevOps, ML pipelines).
+
+**Core Features:**
+- Fine-tuned model on domain-specific code (LoRA/QLoRA)
+- RAG over domain documentation and best practices
+- Context-aware autocomplete
+- Natural language to code generation for domain tasks
+- Interactive playground with code execution
+
+### Project 4: Multi-Agent Workflow Platform
+
+**Difficulty:** Expert | **Timeline:** 4-5 weeks | **Skills demonstrated:** Agent orchestration, System design, Full-stack
+
+Build a platform where users can create, configure, and run multi-agent workflows visually.
+
+**Core Features:**
+- Visual workflow builder (drag-and-drop agents + connections)
+- Pre-built agent templates (researcher, writer, coder, reviewer)
+- Custom tool integration (APIs, databases, file systems)
+- Execution engine with parallel processing and error handling
+- Run history with full observability (traces, costs, outputs)
+
+<Callout type="tip" title="Pick Based on Your Target Role" client:load>
+  If you're targeting AI infrastructure roles → build the Multi-Agent Platform. For application-focused roles → build the Research Assistant. For developer tools → build the Code Review Agent. Align your project with the job you want.
+</Callout>
+
+## Portfolio Building on GitHub
+
+### Repository Structure
+
+<CodeBlock language="bash" title="ideal_repo_structure.sh" client:load>
+{`ai-research-assistant/
+├── README.md              # Hero section, demo GIF, architecture diagram
+├── docs/
+│   ├── architecture.md    # System design decisions
+│   ├── setup.md           # Installation and configuration
+│   └── evaluation.md      # Eval results and benchmarks
+├── src/
+│   ├── agents/            # Agent definitions and orchestration
+│   ├── retrieval/         # RAG pipeline components
+│   ├── api/               # FastAPI endpoints
+│   └── config/            # Settings and environment config
+├── tests/
+│   ├── unit/              # Unit tests for components
+│   ├── integration/       # End-to-end pipeline tests
+│   └── eval/              # Evaluation test suites (DeepEval)
+├── scripts/
+│   ├── ingest.py          # Document ingestion pipeline
+│   └── evaluate.py        # Run evaluation suite
+├── docker-compose.yml     # Local development setup
+├── Makefile               # Common commands (make test, make run)
+├── .env.example           # Required environment variables
+└── pyproject.toml         # Dependencies with Poetry/uv
+`}
+</CodeBlock>
+
+### README Best Practices
+
+Your README is the landing page of your project. Include:
+
+1. **Hero section** — One-line description + demo GIF/video (above the fold)
+2. **Features** — Bullet points of what it does (not how)
+3. **Architecture diagram** — Mermaid or image showing system design
+4. **Quick start** — Get running in < 5 minutes
+5. **Tech decisions** — Why you chose each component (shows engineering judgment)
+6. **Results** — Evaluation metrics, benchmarks, screenshots
+7. **Lessons learned** — What you'd do differently (shows maturity)
+
+<Callout type="warning" title="Common Portfolio Mistakes" client:load>
+  Avoid: no live demo, no README, tutorial code copy-pasted without modification, too many half-finished projects, no tests, hardcoded API keys in code. Each of these signals junior-level work to reviewers.
+</Callout>
+
+## Showcase & Deployment Options
+
+### Deployment Platforms
+
+| Platform | Best For | Free Tier | Custom Domain |
+|----------|----------|-----------|---------------|
+| **Vercel** | Next.js frontends | Generous | Yes |
+| **HuggingFace Spaces** | ML demos (Gradio/Streamlit) | Free GPU hours | Yes |
+| **Streamlit Cloud** | Data apps and prototypes | 1 public app | No |
+| **Railway** | Backend APIs | $5/month credit | Yes |
+| **Fly.io** | Docker containers | 3 shared VMs | Yes |
+
+### Demo Best Practices
+
+1. **Live URL that works** — Test it monthly; broken demos are worse than no demo
+2. **Pre-loaded examples** — Don't make reviewers set up API keys to try your project
+3. **Loading states** — Show progress during LLM calls (streaming preferred)
+4. **Error handling** — Graceful failures with helpful messages
+5. **Mobile responsive** — Recruiters often check on phones
+
+## Building in Public
+
+### Why Build in Public?
+
+- **Accountability** — Public commitment increases completion rate
+- **Networking** — Attracts collaborators, mentors, and hiring managers
+- **Content** — Each project update is a blog post or tweet
+- **Feedback** — Early feedback prevents going down wrong paths
+
+### Where to Share
+
+- **Twitter/X** — Short updates, demos, learnings (tag #buildinpublic)
+- **LinkedIn** — Longer posts about architecture decisions, project updates
+- **Dev.to / Hashnode** — Technical blog posts with code examples
+- **YouTube** — Demo videos and architecture walkthroughs
+- **Discord communities** — AI Engineer, LangChain, MLOps
+
+### Content Calendar Template
+
+```
+Week 1: "Starting my capstone project — here's the architecture I chose and why"
+Week 2: "Built the RAG pipeline — here are my chunk size experiments"
+Week 3: "Added evaluation — my RAGAS scores and what I learned"
+Week 4: "Deployed! Here's the live demo and what I'd do differently"
+```
+
+## Documentation Best Practices
+
+### Architecture Decision Records (ADRs)
+
+<CodeBlock language="python" title="adr_template.py" client:load>
+{`"""
+ADR-001: Choosing Qdrant over Pinecone for Vector Storage
+
+Status: Accepted
+Date: 2025-03-15
+
+Context:
+- Need vector storage for 100K+ documents
+- Budget constraint: < $50/month for development
+- Want full control over data (no vendor lock-in)
+- Team familiar with Docker-based deployments
+
+Decision:
+- Use Qdrant (open-source, self-hosted on Railway)
+
+Consequences:
++ Full data control and portability
++ No per-query pricing (predictable costs)  
++ Can run locally for development
+- Need to manage infrastructure ourselves
+- No managed scaling (acceptable at our scale)
+
+Alternatives Considered:
+- Pinecone: Too expensive for exploration phase ($70+/month)
+- Weaviate: Good but heavier operational overhead
+- ChromaDB: Not production-ready for our scale
+"""
+`}
+</CodeBlock>
+
+## Project Timeline Template
+
+| Week | Milestone | Deliverable |
+|------|-----------|-------------|
+| 1 | Foundation | Repo setup, architecture design, basic pipeline working |
+| 2 | Core features | Main functionality complete, initial evals passing |
+| 3 | Polish | Error handling, tests, documentation, deployment |
+| 4 | Launch | Live demo, README with GIF, share publicly, collect feedback |
+
+## Key Resources
+
+- **[GitHub Profile README Guide](https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-github-profile/customizing-your-profile/managing-your-profile-readme)** — Make your GitHub profile stand out
+- **[HuggingFace Spaces](https://huggingface.co/spaces)** — Free ML app hosting
+- **[Vercel](https://vercel.com/)** — Best-in-class frontend deployment
+- **[Railway](https://railway.app/)** — Simple backend deployment
+- **[Excalidraw](https://excalidraw.com/)** — Architecture diagrams
+
+## Key Takeaways
+
+1. **1-2 excellent projects > 5 mediocre ones** — depth beats breadth in portfolios
+2. **Live demos are mandatory** — if it's not deployed, it doesn't count
+3. **READMEs sell your projects** — invest 20% of project time in documentation
+4. **Build in public** — share progress, attract feedback, and build your network
+5. **Align projects with target roles** — show the exact skills companies hire for
+6. **Architecture decisions matter** — documenting trade-offs shows senior thinking
+
+---
+
+## Next Steps
+
+With your portfolio built and projects deployed, head to the **Career Center** for job market insights, interview preparation, salary data, and strategies to land your AI engineering role.

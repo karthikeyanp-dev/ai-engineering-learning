@@ -1,0 +1,220 @@
+---
+title: "Understanding LLMs, Tokenization & Embeddings"
+description: "Deep dive into how Large Language Models work, from transformer architecture and tokenization to embeddings and next-token prediction"
+phase: 1
+week: 1
+objectives:
+  - "Understand transformer architecture conceptually (attention, self-attention)"
+  - "Learn how tokenization works (BPE, WordPiece, SentencePiece)"
+  - "Explore embeddings and semantic similarity"
+  - "Understand next-token prediction mechanics"
+  - "Set up a working development environment"
+estimatedTime: "8-10 hours"
+difficulty: "beginner"
+videoUrl: "https://www.youtube.com/watch?v=kCc8FmEb1nY"
+order: 1
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Large Language Models (LLMs) have transformed how we build software. From chatbots to code assistants, these models power a new generation of applications. But to build *effectively* with LLMs, you need to understand what's happening under the hood.
+
+In this lesson, you'll develop a mental model of how LLMs actually work — from the transformer architecture that makes them possible, to the tokenization schemes that turn text into numbers, to the embedding spaces that capture meaning. This isn't about memorizing equations; it's about building intuition that will make you a better AI engineer.
+
+<Callout type="tip" title="Why This Matters" client:load>
+  Understanding LLM internals will help you write better prompts, debug unexpected behavior, choose the right model for your task, and make informed architectural decisions when building AI applications.
+</Callout>
+
+## Recommended Video
+
+Watch Andrej Karpathy's legendary walkthrough of building a GPT model from scratch. This is widely considered the best introduction to transformer-based language models:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=kCc8FmEb1nY" title="Let's build GPT from scratch — Andrej Karpathy" client:load />
+
+## The Transformer Architecture
+
+The **Transformer** (introduced in "Attention Is All You Need", 2017) is the architecture behind every modern LLM. Here's how it works at a high level:
+
+### Self-Attention Mechanism
+
+Self-attention allows each token in the input to "look at" every other token and decide which ones are relevant. Think of it like reading a sentence and highlighting which words help you understand a particular word's meaning.
+
+For example, in "The cat sat on the mat because **it** was tired" — self-attention helps the model understand that "it" refers to "the cat" by assigning high attention weights between those tokens.
+
+The math: for each token, we compute Query (Q), Key (K), and Value (V) vectors, then calculate attention scores:
+
+```
+Attention(Q, K, V) = softmax(QK^T / √d_k) V
+```
+
+### Multi-Head Attention
+
+Instead of a single attention function, transformers use **multiple heads** in parallel — each learning to attend to different types of relationships (syntactic, semantic, positional). The outputs are concatenated and projected.
+
+<Callout type="info" title="Key Insight" client:load>
+  Multi-head attention lets the model simultaneously track different types of relationships. One head might learn subject-verb agreement, another might track coreference, and another positional patterns — all in parallel.
+</Callout>
+
+### The Full Architecture
+
+A transformer decoder block (used in GPT-style models) consists of:
+1. **Masked self-attention** — tokens can only attend to previous tokens (causal)
+2. **Layer normalization** — stabilizes training
+3. **Feed-forward network** — processes each position independently
+4. **Residual connections** — help gradients flow during training
+
+Models like GPT-4 stack dozens of these blocks (rumored 120+ layers) with billions of parameters.
+
+## How Tokenization Works
+
+Tokenization converts text into numerical tokens the model can process. This step has major implications for cost, context length, and model behavior.
+
+### Tokenization Algorithms
+
+- **BPE (Byte Pair Encoding)** — Used by GPT models. Iteratively merges the most frequent byte pairs.
+- **WordPiece** — Used by BERT. Similar to BPE but uses likelihood-based merging.
+- **SentencePiece** — Used by T5 and LLaMA. Treats text as raw bytes, language-agnostic.
+
+### Token Counting in Practice
+
+<CodeBlock language="python" title="tokenization_example.py" client:load>
+{`import tiktoken
+
+# Use the GPT-4 tokenizer
+enc = tiktoken.encoding_for_model("gpt-4")
+
+text = "Hello, world! This is tokenization in action."
+tokens = enc.encode(text)
+
+print(f"Text: {text}")
+print(f"Tokens: {tokens}")
+print(f"Token count: {len(tokens)}")
+print(f"Cost estimate (GPT-4): \${len(tokens) * 0.00003:.6f} per call")
+
+# Decode each token to see the pieces
+print("\\nToken breakdown:")
+for token in tokens:
+    print(f"  {token} -> '{enc.decode([token])}'")
+
+# Compare token counts for different content
+examples = [
+    "Hello world",
+    "Pneumonoultramicroscopicsilicovolcanoconiosis",
+    "def fibonacci(n): return n if n <= 1 else fibonacci(n-1) + fibonacci(n-2)",
+    "こんにちは世界",  # Japanese: more tokens per character
+]
+
+print("\\nToken count comparison:")
+for ex in examples:
+    count = len(enc.encode(ex))
+    print(f"  '{ex[:40]}...' -> {count} tokens")
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Token Costs Add Up" client:load>
+  Different languages and content types tokenize very differently. Code often uses fewer tokens than natural language. Non-English text typically uses 2-4x more tokens. Always estimate token usage before committing to a model for production use.
+</Callout>
+
+## Embeddings & Semantic Similarity
+
+Embeddings are dense vector representations of text that capture semantic meaning. Similar concepts end up close together in the embedding space — enabling search, clustering, and classification.
+
+### Why Embeddings Matter
+
+Embeddings are the bridge between human language and mathematical operations. They allow us to:
+- Search documents by meaning (not just keywords)
+- Cluster related content automatically
+- Build recommendation systems
+- Power RAG (Retrieval-Augmented Generation) pipelines
+
+### Computing Similarity
+
+<CodeBlock language="python" title="embeddings_similarity.py" client:load>
+{`from openai import OpenAI
+import numpy as np
+
+client = OpenAI()
+
+def get_embedding(text: str, model="text-embedding-3-small") -> list[float]:
+    """Get embedding vector for a text string."""
+    response = client.embeddings.create(input=text, model=model)
+    return response.data[0].embedding
+
+def cosine_similarity(a, b):
+    """Compute cosine similarity between two vectors."""
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+# Compare semantic similarity across different texts
+texts = [
+    "The cat sat on the mat",
+    "A feline rested on the rug",
+    "Python is a programming language",
+    "Machine learning models learn patterns from data",
+    "Deep learning uses neural networks with many layers",
+]
+
+embeddings = [get_embedding(t) for t in texts]
+
+print("Semantic Similarity Matrix:")
+print("-" * 60)
+for i in range(len(texts)):
+    for j in range(i + 1, len(texts)):
+        sim = cosine_similarity(embeddings[i], embeddings[j])
+        print(f"  {sim:.4f} | '{texts[i][:30]}' vs '{texts[j][:30]}'")
+`}
+</CodeBlock>
+
+## Next-Token Prediction
+
+At its core, an LLM is a **next-token predictor**. Given a sequence of tokens, it outputs a probability distribution over the entire vocabulary for what comes next. This simple objective, scaled up with massive data and compute, produces emergent capabilities like reasoning, translation, and code generation.
+
+### The Training Objective
+
+The training objective is **causal language modeling**: given tokens [t₁, t₂, ..., tₙ], predict tₙ₊₁. The loss function is cross-entropy between the predicted distribution and the actual next token.
+
+### Generation Parameters
+
+When generating text, several parameters control the output:
+
+- **Temperature** (0.0–2.0): Controls randomness. Lower = more deterministic, higher = more creative.
+- **Top-k**: Only sample from the k most probable tokens.
+- **Top-p (nucleus sampling)**: Sample from the smallest set of tokens whose cumulative probability exceeds p.
+
+<Callout type="important" title="Temperature & Sampling" client:load>
+  For production applications: use temperature 0.0-0.3 for factual tasks (extraction, classification), 0.7-1.0 for creative tasks (writing, brainstorming). Always set a temperature — don't rely on defaults.
+</Callout>
+
+## Hands-On Project: Token Explorer
+
+Build a simple token analysis tool that helps you understand tokenization:
+
+1. Install dependencies: `pip install tiktoken openai numpy`
+2. Create a script that compares token counts across different models (GPT-3.5, GPT-4, Claude)
+3. Compute embeddings for your own text and visualize similarity
+4. Experiment with different temperature values and observe output changes
+
+## Key Resources
+
+- [Attention Is All You Need](https://arxiv.org/abs/1706.03762) — Original transformer paper
+- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) — Jay Alammar's visual guide
+- [Andrej Karpathy's Neural Networks: Zero to Hero](https://karpathy.ai/zero-to-hero.html) — Full course series
+- [OpenAI Tokenizer](https://platform.openai.com/tokenizer) — Interactive tokenizer tool
+- [tiktoken library](https://github.com/openai/tiktoken) — Fast BPE tokenizer for OpenAI models
+
+## Summary
+
+- **Transformers** use self-attention to process sequences in parallel, enabling massive scaling
+- **Tokenization** converts text to numbers — different algorithms have different tradeoffs
+- **Embeddings** capture semantic meaning as vectors, enabling similarity search
+- **Next-token prediction** is the simple objective that produces complex capabilities
+- **Generation parameters** (temperature, top-k, top-p) control output randomness and quality
+
+---
+
+## Next Steps
+
+In the next lesson, you'll apply these concepts to **prompt engineering** — learning how to effectively communicate with LLMs to get reliable, structured outputs for real applications.

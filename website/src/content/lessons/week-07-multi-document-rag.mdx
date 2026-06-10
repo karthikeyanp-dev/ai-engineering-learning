@@ -1,0 +1,309 @@
+---
+title: "Multi-Document RAG & Vector Database Selection"
+description: "Build RAG systems that handle multiple document types and compare vector databases for production use — ChromaDB, Pinecone, Weaviate, and Qdrant"
+phase: 2
+week: 7
+objectives:
+  - "Build multi-source RAG handling PDFs, web pages, code, and databases"
+  - "Compare vector databases: ChromaDB vs Pinecone vs Weaviate vs Qdrant"
+  - "Use LlamaIndex data connectors for diverse document types"
+  - "Design document processing pipelines for production"
+estimatedTime: "10-12 hours"
+difficulty: "intermediate"
+videoUrl: "https://www.youtube.com/watch?v=TRjq7t2Ms5I"
+order: 7
+---
+
+import { Callout } from '../../components/ui/Callout';
+import { VideoEmbed } from '../../components/ui/VideoEmbed';
+import { CodeBlock } from '../../components/ui/CodeBlock';
+
+## Introduction
+
+Real-world RAG systems don't just handle text files. They need to ingest PDFs with tables, crawl web pages, parse code repositories, and query databases — all while maintaining a unified search experience. Each source type has unique challenges: PDFs lose formatting, web pages have boilerplate, code has different semantic boundaries.
+
+In this lesson, you'll build a multi-source RAG system that handles 3+ document types, and you'll evaluate which vector database is right for your production needs. By the end, you'll have a robust document pipeline that can ingest anything.
+
+<Callout type="tip" title="Start Simple, Add Sources Incrementally" client:load>
+  Don't try to handle every document type on day one. Start with your most common source type, get it working well, then add new sources one at a time. Each source type needs its own chunking and metadata strategy.
+</Callout>
+
+## Recommended Video
+
+Learn about building multi-source RAG with LlamaIndex:
+
+<VideoEmbed url="https://www.youtube.com/watch?v=TRjq7t2Ms5I" title="Building Multi-Document RAG with LlamaIndex" client:load />
+
+## Multi-Source Document Processing
+
+### PDF Processing with Tables and Images
+
+<CodeBlock language="python" title="multi_source_loading.py" client:load>
+{`from langchain_community.document_loaders import (
+    PyPDFLoader,
+    UnstructuredPDFLoader,
+    WebBaseLoader,
+    GitLoader,
+    CSVLoader,
+    NotionDirectoryLoader,
+)
+from langchain.text_splitter import RecursiveCharacterTextSplitter, Language
+
+# PDF with layout-aware parsing
+def load_pdf(path: str):
+    """Load PDF with unstructured for better table/image handling."""
+    loader = UnstructuredPDFLoader(path, mode="elements")
+    docs = loader.load()
+    # Separate tables from text for different processing
+    tables = [d for d in docs if d.metadata.get("category") == "Table"]
+    text = [d for d in docs if d.metadata.get("category") != "Table"]
+    return text, tables
+
+# Web pages with intelligent extraction
+def load_web(urls: list[str]):
+    """Load web pages, stripping navigation and ads."""
+    loader = WebBaseLoader(urls)
+    docs = loader.load()
+    # Add source metadata
+    for doc in docs:
+        doc.metadata["source_type"] = "web"
+        doc.metadata["ingested_at"] = "2024-01-15"
+    return docs
+
+# Code repositories
+def load_code(repo_path: str):
+    """Load code files with language-aware splitting."""
+    loader = GitLoader(
+        repo_path=repo_path,
+        file_filter=lambda f: f.endswith((".py", ".js", ".ts"))
+    )
+    docs = loader.load()
+    
+    # Use language-aware splitting for code
+    python_splitter = RecursiveCharacterTextSplitter.from_language(
+        language=Language.PYTHON,
+        chunk_size=1000,
+        chunk_overlap=100
+    )
+    return python_splitter.split_documents(
+        [d for d in docs if d.metadata["file_path"].endswith(".py")]
+    )
+
+# CSV / structured data
+def load_csv(path: str):
+    """Load CSV with row-level documents."""
+    loader = CSVLoader(path, encoding="utf-8")
+    return loader.load()
+`}
+</CodeBlock>
+
+### Unified Ingestion Pipeline
+
+<CodeBlock language="python" title="unified_pipeline.py" client:load>
+{`from dataclasses import dataclass
+from typing import Literal
+import chromadb
+from chromadb.utils import embedding_functions
+
+@dataclass
+class DocumentSource:
+    path: str
+    source_type: Literal["pdf", "web", "code", "csv"]
+    collection_name: str
+    metadata: dict = None
+
+class MultiSourceRAG:
+    """Unified RAG system handling multiple document types."""
+    
+    def __init__(self, persist_dir: str = "./multi_rag_db"):
+        self.client = chromadb.PersistentClient(path=persist_dir)
+        self.ef = embedding_functions.OpenAIEmbeddingFunction(
+            model_name="text-embedding-3-small"
+        )
+    
+    def ingest(self, source: DocumentSource):
+        """Ingest documents from any supported source type."""
+        # Load based on type
+        if source.source_type == "pdf":
+            docs, tables = load_pdf(source.path)
+        elif source.source_type == "web":
+            docs = load_web([source.path])
+        elif source.source_type == "code":
+            docs = load_code(source.path)
+        elif source.source_type == "csv":
+            docs = load_csv(source.path)
+        
+        # Get or create collection
+        collection = self.client.get_or_create_collection(
+            name=source.collection_name,
+            embedding_function=self.ef
+        )
+        
+        # Add with metadata
+        for i, doc in enumerate(docs):
+            metadata = {
+                "source_type": source.source_type,
+                "source_path": source.path,
+                **(source.metadata or {}),
+                **(doc.metadata if hasattr(doc, 'metadata') else {})
+            }
+            collection.add(
+                documents=[doc.page_content if hasattr(doc, 'page_content') else str(doc)],
+                ids=[f"{source.source_type}_{i}"],
+                metadatas=[metadata]
+            )
+        
+        print(f"Ingested {len(docs)} chunks from {source.source_type}: {source.path}")
+    
+    def query(self, question: str, source_types: list[str] = None, k: int = 5):
+        """Query across all sources with optional filtering."""
+        collection = self.client.get_collection("my_documents", embedding_function=self.ef)
+        
+        where_filter = None
+        if source_types:
+            where_filter = {"source_type": {"$in": source_types}}
+        
+        results = collection.query(
+            query_texts=[question],
+            n_results=k,
+            where=where_filter
+        )
+        return results
+
+# Usage
+rag = MultiSourceRAG()
+rag.ingest(DocumentSource("docs/paper.pdf", "pdf", "my_documents"))
+rag.ingest(DocumentSource("https://docs.example.com", "web", "my_documents"))
+rag.ingest(DocumentSource("./my_repo", "code", "my_documents"))
+`}
+</CodeBlock>
+
+<Callout type="warning" title="Document Type Challenges" client:load>
+  - **PDFs**: Tables lose structure, images need OCR, headers/footers create noise
+  - **Web pages**: Navigation, ads, and boilerplate dilute content
+  - **Code**: Function boundaries matter more than line counts
+  - **CSVs**: Each row might be a document, or you might need to summarize columns
+  
+  Always inspect a sample of chunked output for each new source type.
+</Callout>
+
+## Vector Database Comparison
+
+### ChromaDB vs Pinecone vs Weaviate vs Qdrant
+
+<CodeBlock language="python" title="vector_db_comparison.py" client:load>
+{`# ChromaDB — Best for: prototyping, small-medium scale, local-first
+import chromadb
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
+collection = chroma_client.create_collection("test")
+collection.add(documents=["hello world"], ids=["1"])
+results = collection.query(query_texts=["greeting"], n_results=1)
+
+# Pinecone — Best for: production SaaS, serverless, massive scale
+from pinecone import Pinecone
+pc = Pinecone(api_key="your-key")
+index = pc.Index("my-index")
+index.upsert(vectors=[{"id": "1", "values": [0.1]*1536, "metadata": {"text": "hello"}}])
+results = index.query(vector=[0.1]*1536, top_k=5, include_metadata=True)
+
+# Weaviate — Best for: hybrid search built-in, GraphQL API, multi-modal
+import weaviate
+wclient = weaviate.connect_to_local()
+collection = wclient.collections.create(name="Documents")
+collection.data.insert(properties={"text": "hello world"})
+
+# Qdrant — Best for: filtering, payload indexing, self-hosted performance
+from qdrant_client import QdrantClient
+from qdrant_client.models import VectorParams, Distance
+qclient = QdrantClient(url="http://localhost:6333")
+qclient.create_collection("test", vectors_config=VectorParams(size=1536, distance=Distance.COSINE))
+`}
+</CodeBlock>
+
+### Decision Matrix
+
+| Feature | ChromaDB | Pinecone | Weaviate | Qdrant |
+|---------|----------|----------|----------|--------|
+| **Hosting** | Local/embedded | Serverless cloud | Self-host or cloud | Self-host or cloud |
+| **Scale** | `<1M` vectors | Billions | Millions | Millions |
+| **Hybrid search** | No (addon) | No | Built-in BM25 | Sparse vectors |
+| **Filtering** | Basic | Good | Excellent | Excellent |
+| **Price** | Free (OSS) | Pay per query | Free (OSS) | Free (OSS) |
+| **Best for** | Dev/prototype | Scale SaaS | Multi-modal | Performance |
+
+<Callout type="info" title="Choosing a Vector Database" client:load>
+  - **Just starting?** Use ChromaDB — zero infrastructure, great for learning
+  - **Building SaaS?** Pinecone — fully managed, scales infinitely
+  - **Need hybrid search?** Weaviate — BM25 + vector built-in
+  - **Self-hosting with complex filters?** Qdrant — best filtering performance
+</Callout>
+
+## LlamaIndex Data Connectors
+
+LlamaIndex provides 100+ data connectors (called "Readers") for diverse sources:
+
+<CodeBlock language="python" title="llamaindex_connectors.py" client:load>
+{`from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
+from llama_index.readers.web import SimpleWebPageReader
+from llama_index.readers.database import DatabaseReader
+from llama_index.core.node_parser import SentenceSplitter
+
+# Load from directory (auto-detects file types)
+documents = SimpleDirectoryReader(
+    input_dir="./documents",
+    recursive=True,
+    required_exts=[".pdf", ".txt", ".md", ".docx"]
+).load_data()
+
+# Load from database
+db_reader = DatabaseReader(uri="sqlite:///my_database.db")
+db_docs = db_reader.load_data(query="SELECT title, content FROM articles WHERE active=1")
+
+# Parse into nodes with sentence-aware splitting
+parser = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+nodes = parser.get_nodes_from_documents(documents)
+
+# Build index
+index = VectorStoreIndex(nodes)
+
+# Query
+query_engine = index.as_query_engine(similarity_top_k=5)
+response = query_engine.query("What are the main findings?")
+print(response)
+`}
+</CodeBlock>
+
+## Hands-On Project: Multi-Source Knowledge Base
+
+Build a knowledge base that ingests from 3+ different sources:
+
+1. **PDF documents**: Technical papers or documentation (5+ files)
+2. **Web pages**: Blog posts or docs pages (10+ URLs)
+3. **Code repository**: A GitHub repo's source code
+4. **Unified search**: Single query interface across all sources
+5. **Source attribution**: Every answer cites which source and document it came from
+
+<Callout type="important" title="Data Pipeline Design" client:load>
+  Design your ingestion as a pipeline with clear stages: fetch → parse → clean → chunk → embed → store. Make each stage independently testable and re-runnable. Use metadata to track ingestion timestamps so you can refresh stale sources.
+</Callout>
+
+## Key Resources
+
+- [LlamaIndex Documentation](https://docs.llamaindex.ai/) — Complete data framework
+- [ChromaDB Cookbook](https://cookbook.chromadb.dev/) — Practical ChromaDB patterns
+- [Pinecone Learning Center](https://www.pinecone.io/learn/) — Vector DB fundamentals
+- [Qdrant Documentation](https://qdrant.tech/documentation/) — Self-hosted vector search
+
+## Summary
+
+- **Multi-source RAG** requires source-specific loading, chunking, and metadata strategies
+- **ChromaDB** for prototyping, **Pinecone** for scale, **Weaviate** for hybrid search, **Qdrant** for filtering
+- **LlamaIndex** provides 100+ connectors for diverse data sources
+- Always add **source metadata** for attribution and filtering
+- Design ingestion as a **pipeline** with testable, re-runnable stages
+
+---
+
+## Next Steps
+
+Phase 2 is complete! You've mastered RAG from fundamentals to production. In Phase 3, you'll build **AI Agents** — autonomous systems that can reason, plan, and use tools to accomplish complex tasks.
